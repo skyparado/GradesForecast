@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coursemap · grade tracker</title>
+
+  <!-- Fonts: a grotesk for display, Inter for body, a mono for the numbers.
+       If you're offline they fall back to system fonts and everything still works. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand__mark">◆</span>
+        <div>
+          <h1>Coursemap</h1>
+          <p class="brand__tag">Know where you stand. Know what to fix next.</p>
+        </div>
+      </div>
+      <button id="reset-btn" class="ghost-btn">Reset all</button>
+    </header>
+
+    <!-- Add a subject -->
+    <section class="add-subject card">
+      <input type="text" id="new-subject-name" placeholder="Add a subject (e.g. Calculus)" />
+      <input type="number" id="new-subject-target" placeholder="Target" min="0" max="100" />
+      <button id="add-subject-btn" class="primary-btn">Add subject</button>
+    </section>
+
+    <!-- THE signature panel: priorities across every subject -->
+    <section class="priority card">
+      <div class="priority__label">
+        <h2>Focus next</h2>
+        <span>ranked by impact, gap to target, and your confidence</span>
+      </div>
+      <div id="priority-board"></div>
+    </section>
+
+    <!-- Two columns: subjects on the left, the open subject on the right -->
+    <main class="workspace">
+      <aside class="card subjects">
+        <h2 class="col-title">Subjects</h2>
+        <div id="subject-list"></div>
+      </aside>
+
+      <section class="card detail">
+        <div id="subject-detail"></div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <p>Data is saved only in this browser (LocalStorage). Canvas sync can be
+         added later by swapping <code>js/storage.js</code>.</p>
+    </footer>
+  </div>
+
+  <!-- Load order matters: each file uses the ones above it. main.js is last. -->
+  <script src="js/storage.js"></script>
+  <script src="js/models.js"></script>
+  <script src="js/calculations.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
