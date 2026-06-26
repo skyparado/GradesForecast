@@ -1,27 +1,57 @@
 /* ============================================================================
- * main.js — controller with three-screen navigation: terms → dashboard → course
+ * main.js — controller: 4-screen navigation + all actions
  * ========================================================================== */
 
 const App = {
-  state:          null,
-  calibrationLog: [],
-
-  // Navigation state
-  nav: { screen: "terms", termId: null, courseId: null },
+  state: null,
+  nav:   { screen: "home", termId: null, courseId: null },
 
   init() {
-    this.state          = Storage.load();
-    this.calibrationLog = Storage.loadCalibration();
-    this.bindGlobalEvents();
+    this.state = Storage.load();
+    this.applyTheme(localStorage.getItem("dlplanner.theme") || "dark");
+    this.injectThemeToggle();
+    document.getElementById("app").addEventListener("click",  e => this.handleClick(e));
+    document.getElementById("app").addEventListener("change", e => this.handleChange(e));
+    document.getElementById("app").addEventListener("input",  e => this.handleInput(e));
     this.render();
   },
 
-  commit() {
-    Storage.save(this.state);
-    this.render();
+  applyTheme(theme) {
+    this.theme = theme;
+    document.body.classList.toggle("theme-light", theme === "light");
+    const btn = document.getElementById("theme-toggle-btn");
+    if (btn) btn.textContent = theme === "light" ? "🌙" : "☀️";
+    localStorage.setItem("dlplanner.theme", theme);
   },
 
-  // ---- Navigation -----------------------------------------------------------
+  injectThemeToggle() {
+    if (document.getElementById("theme-toggle-btn")) return;
+    const btn = document.createElement("button");
+    btn.id        = "theme-toggle-btn";
+    btn.className = "theme-toggle";
+    btn.title     = "Toggle light / dark mode";
+    btn.textContent = this.theme === "light" ? "🌙" : "☀️";
+    btn.addEventListener("click", () => {
+      this.applyTheme(this.theme === "light" ? "dark" : "light");
+    });
+    document.body.appendChild(btn);
+  },
+
+  // ---- Save / render --------------------------------------------------------
+
+  commit() { Storage.save(this.state); this.render(); },
+  save()   { Storage.save(this.state); },
+
+  render() {
+    const { screen } = this.nav;
+    const app = document.getElementById("app");
+    if (screen === "home")          app.innerHTML = UI.homeScreen(this.state);
+    if (screen === "summary")       app.innerHTML = UI.summaryScreen(this.activeTerm());
+    if (screen === "score-editor")  app.innerHTML = UI.scoreEditorScreen(this.activeCourse());
+    if (screen === "course-editor") app.innerHTML = UI.courseEditorScreen(this.activeCourse());
+  },
+
+  // ---- Navigators -----------------------------------------------------------
 
   goTo(screen, opts = {}) {
     this.nav = {
@@ -32,263 +62,260 @@ const App = {
     this.render();
   },
 
-  activeTerm() {
-    return this.state.terms.find((t) => t.id === this.nav.termId) || null;
-  },
-
+  activeTerm()   { return this.state.terms.find(t => t.id === this.nav.termId) || null; },
   activeCourse() {
     const term = this.activeTerm();
-    return term ? term.subjects.find((s) => s.id === this.nav.courseId) || null : null;
+    return term ? term.courses.find(c => c.id === this.nav.courseId) || null : null;
   },
 
-  // ---- Render ---------------------------------------------------------------
+  // ---- Finders --------------------------------------------------------------
 
-  render() {
-    const app = document.getElementById("app");
-    const { screen } = this.nav;
-    if (screen === "terms")     app.innerHTML = UI.termsScreen(this.state);
-    if (screen === "dashboard") app.innerHTML = UI.dashboardScreen(this.activeTerm(), this.calibrationLog);
-    if (screen === "course")    app.innerHTML = UI.courseScreen(this.activeCourse(), this.calibrationLog);
-    this.drawCharts();
-  },
-
-  drawCharts() {
+  findComp(compId) {
     const course = this.activeCourse();
-    if (!course) return;
-    const gc = document.getElementById("chart-grade");
-    const cc = document.getElementById("chart-confidence");
-    if (gc) Charts.line(gc, Calc.gradeTrend(course));
-    if (cc) Charts.bars(cc, course.categories.map((c) => ({ label: c.name, value: c.confidence })));
+    return course ? course.components.find(c => c.id === compId) || null : null;
   },
 
-  // ---- Global event delegation ----------------------------------------------
-
-  bindGlobalEvents() {
-    document.getElementById("app").addEventListener("click",  (e) => this.handleClick(e));
-    document.getElementById("app").addEventListener("change", (e) => this.handleChange(e));
-    document.getElementById("app").addEventListener("input",  (e) => this.handleInput(e));
+  findEntity(compId, subId) {
+    const comp = this.findComp(compId);
+    if (!comp) return null;
+    if (!subId) return comp; // leaf component
+    return comp.subcomponents.find(s => s.id === subId) || null;
   },
+
+  // ---- Event handling -------------------------------------------------------
 
   handleClick(e) {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
-    const { action, id } = btn.dataset;
+    e.stopPropagation();
+    const { action, id, val } = btn.dataset;
     const handler = this.actions[action];
-    if (handler) handler.call(this, btn, id, e);
+    if (handler) handler.call(this, btn, id, val, e);
   },
 
   handleChange(e) {
-    const el = e.target.closest("[data-action]");
-    if (!el) return;
-    const changeable = ["set-target", "set-weight", "set-confidence", "set-deadline",
-                        "set-final-weight", "set-final-confidence"];
-    if (changeable.includes(el.dataset.action)) {
-      this.actions[el.dataset.action].call(this, el, el.dataset.id, e);
+    const el = e.target;
+    const action = el.dataset.action;
+    if (!action) return;
+    const scoreActions = ["set-real-score", "set-total-marks", "set-sub-marks",
+                          "set-sub-name", "set-comp-name"];
+    const handler = this.actions[action];
+    if (handler) {
+      handler.call(this, el, el.dataset.id || el.dataset.comp, el.dataset.val, e);
+      // Score/name inputs: save without re-render to preserve focus
+      if (scoreActions.includes(action)) { this.save(); return; }
     }
   },
 
   handleInput(e) {
     const el = e.target;
-    if (el.dataset.action === "set-confidence") {
-      const label = el.parentElement.querySelector(".conf__val");
-      if (label) label.textContent = el.value + "%";
+    // Live update slider labels without full re-render
+    if (el.dataset.action === "set-overall-conf") {
+      const lbl = el.closest(".conf-slider-wrap")?.querySelector(".conf-slider__val--lg");
+      if (lbl) {
+        const lvl = Number(el.value);
+        lbl.textContent = ["LOW", "MEDIUM", "HIGH"][lvl];
+        lbl.className = `conf-slider__val conf-slider__val--lg conf-val--${lvl}`;
+        const hint = el.closest(".editor-field")?.querySelector(".conf-hint");
+        if (hint) {
+          const pct = Calc.cv(lvl);
+          const course = this.activeCourse();
+          const gwaVal = course ? Calc.gwa(pct, course.passingThreshold).toFixed(1) : "?";
+          hint.textContent = `→ ${pct}% target (GWA ${gwaVal})`;
+        }
+      }
     }
-    if (el.dataset.action === "set-final-confidence") {
-      const label = document.getElementById("final-conf-val");
-      if (label) label.textContent = el.value + "%";
-      // Re-render just the final calc result without a full commit
-      this.updateFinalCalcDisplay();
+    if (el.dataset.action === "set-comp-conf") {
+      const wrap = el.closest(".comp-conf");
+      const lbl = wrap?.querySelector(".conf-slider__val");
+      if (lbl) {
+        const lvl = Number(el.value);
+        lbl.textContent = ["LOW", "MEDIUM", "HIGH"][lvl];
+        lbl.className = `conf-slider__val conf-val--${lvl}`;
+      }
     }
-    if (el.dataset.action === "set-final-weight") {
-      this.updateFinalCalcDisplay();
-    }
-  },
-
-  updateFinalCalcDisplay() {
-    const course = this.activeCourse();
-    if (!course) return;
-    const weightEl = document.querySelector("[data-action='set-final-weight']");
-    const confEl   = document.querySelector("[data-action='set-final-confidence']");
-    if (weightEl) course.finalWeight      = Number(weightEl.value);
-    if (confEl)   course.finalConfidence  = Number(confEl.value);
-    const resultEl = document.getElementById("final-calc-result");
-    if (resultEl) resultEl.innerHTML = UI.finalCalcResult(course, this.calibrationLog);
-  },
-
-  fieldVal(container, field) {
-    const el = container.querySelector(`[data-field="${field}"]`);
-    return el ? el.value : "";
   },
 
   // ---- Actions --------------------------------------------------------------
 
   actions: {
 
-    // --- Terms screen ---
-    "add-term"(btn) {
-      const input = document.getElementById("new-term-name");
-      if (!input || !input.value.trim()) return;
-      const term = Models.createTerm(input.value);
-      this.state.terms.push(term);
-      input.value = "";
+    // Home
+    "prompt-add-term"() {
+      const name = prompt("Term name (e.g. Y1T1):");
+      if (!name || !name.trim()) return;
+      this.state.terms.push(Models.createTerm(name));
       this.commit();
     },
 
     "select-term"(btn, termId) {
-      this.goTo("dashboard", { termId });
+      this.goTo("summary", { termId });
     },
 
     "delete-term"(btn, termId) {
       if (!confirm("Delete this term and all its courses?")) return;
-      this.state.terms = this.state.terms.filter((t) => t.id !== termId);
-      this.commit();
-    },
-
-    // --- Dashboard screen ---
-    "back-to-terms"() {
-      this.goTo("terms");
-    },
-
-    "add-course"(btn) {
-      const name   = document.getElementById("new-course-name");
-      const target = document.getElementById("new-course-target");
-      if (!name || !name.value.trim()) return;
-      const term = this.activeTerm();
-      const subj = Models.createSubject(name.value, target.value || 90);
-      term.subjects.push(subj);
-      name.value   = "";
-      target.value = "";
-      this.commit();
-    },
-
-    "select-course"(btn, courseId) {
-      this.goTo("course", { courseId });
-    },
-
-    "delete-course"(btn, courseId) {
-      if (!confirm("Delete this course?")) return;
-      const term = this.activeTerm();
-      term.subjects = term.subjects.filter((s) => s.id !== courseId);
+      this.state.terms = this.state.terms.filter(t => t.id !== termId);
       this.commit();
     },
 
     "reset-all"() {
-      if (!confirm("Delete everything? This can't be undone.")) return;
+      if (!confirm("Delete everything? This cannot be undone.")) return;
       Storage.reset();
-      this.state          = Storage.load();
-      this.calibrationLog = [];
-      this.goTo("terms");
+      this.state = Storage.load();
+      this.goTo("home");
     },
 
-    // --- Course editor screen ---
-    "back-to-dashboard"() {
-      this.goTo("dashboard");
+    // Summary
+    "back-to-home"() { this.goTo("home"); },
+
+    "set-dl"(btn, id, val) {
+      const term = this.activeTerm();
+      if (term) { term.dlTarget = Number(val); this.commit(); }
     },
 
-    "set-target"(el, id) {
+    "add-course"() {
+      const term = this.activeTerm();
+      if (!term) return;
+      const course = Models.createCourse("New Course");
+      term.courses.push(course);
+      this.save();
+      this.goTo("course-editor", { courseId: course.id });
+    },
+
+    "open-score-editor"(btn, courseId) {
+      this.goTo("score-editor", { courseId });
+    },
+
+    "open-course-editor"(btn, courseId) {
+      this.goTo("course-editor", { courseId });
+    },
+
+    "remove-course"(btn, courseId) {
+      if (!confirm("Remove this course?")) return;
+      const term = this.activeTerm();
+      term.courses = term.courses.filter(c => c.id !== courseId);
+      this.commit();
+      this.goTo("summary");
+    },
+
+    // Score Editor / Course Editor
+    "back-to-summary"() { this.save(); this.goTo("summary"); },
+
+    "set-real-score"(el) {
+      const entity = this.findEntity(el.dataset.comp, el.dataset.sub);
+      if (entity) entity.realScore = el.value === "" ? null : Number(el.value);
+    },
+
+    "set-total-marks"(el) {
+      const entity = this.findEntity(el.dataset.comp, el.dataset.sub);
+      if (entity) entity.totalMarks = el.value === "" ? null : Number(el.value);
+    },
+
+    "unlock-score"(btn) {
+      const entity = this.findEntity(btn.dataset.comp, btn.dataset.sub);
+      if (entity) { entity.locked = false; this.commit(); }
+    },
+
+    "save-scores"() {
       const course = this.activeCourse();
-      if (course) course.target = Number(el.value);
-      this.commit();
-    },
-
-    "set-final-weight"(el) {
-      const course = this.activeCourse();
-      if (course) course.finalWeight = Number(el.value);
-      this.commit();
-    },
-
-    "set-final-confidence"(el) {
-      const course = this.activeCourse();
-      if (course) course.finalConfidence = Number(el.value);
-      this.commit();
-    },
-
-    "add-category"(btn, courseId) {
-      const form   = btn.closest("[data-course]");
-      const name   = this.fieldVal(form, "name");
-      const weight = this.fieldVal(form, "weight");
-      if (!name.trim()) return;
-      const course = this.activeCourse();
-      course.categories.push(Models.createCategory(name, weight || 0, 50));
-      this.commit();
-    },
-
-    "delete-category"(btn, catId) {
-      const course = this.activeCourse();
-      course.categories = course.categories.filter((c) => c.id !== catId);
-      this.commit();
-    },
-
-    "set-weight"(el, catId) {
-      const cat = this.findCategory(catId);
-      if (cat) cat.weight = Number(el.value);
-      this.commit();
-    },
-
-    "set-confidence"(el, catId) {
-      const cat = this.findCategory(catId);
-      if (cat) cat.confidence = Number(el.value);
-      this.commit();
-    },
-
-    "set-deadline"(el, catId) {
-      const cat = this.findCategory(catId);
-      if (cat) cat.deadline = el.value || null;
-      this.commit();
-    },
-
-    "add-score"(btn, catId) {
-      const form              = btn.closest(".mini-form");
-      const label             = this.fieldVal(form, "label");
-      const score             = this.fieldVal(form, "score");
-      const max               = this.fieldVal(form, "max");
-      const confRaw           = this.fieldVal(form, "confidence-at-entry");
-      const confidenceAtEntry = confRaw !== "" ? Number(confRaw) : null;
-      if (score === "" || max === "" || Number(max) <= 0) return;
-      const cat = this.findCategory(catId);
-      cat.scores.push(Models.createScore(label, score, max, undefined, confidenceAtEntry));
-      if (confidenceAtEntry !== null) {
-        const actualPct = (Number(score) / Number(max)) * 100;
-        Storage.appendCalibration({
-          subjectId:  this.activeCourse().id,
-          categoryId: catId,
-          confidence: confidenceAtEntry,
-          actualScore: Math.round(actualPct * 10) / 10,
-        });
-        this.calibrationLog = Storage.loadCalibration();
+      if (!course) return;
+      for (const comp of course.components) {
+        if (!comp.subcomponents.length) {
+          if (comp.realScore !== null && comp.totalMarks > 0) comp.locked = true;
+        } else {
+          for (const sub of comp.subcomponents) {
+            if (sub.realScore !== null && sub.totalMarks > 0) sub.locked = true;
+          }
+        }
       }
       this.commit();
     },
 
-    "delete-score"(btn, catId) {
-      const scoreId = btn.dataset.score;
-      const cat = this.findCategory(catId);
-      cat.scores = cat.scores.filter((s) => s.id !== scoreId);
+    // Course Editor
+    "set-course-name"(el, id) {
+      const course = this.activeCourse();
+      if (course) course.name = el.value.trim() || "Untitled";
+    },
+
+    "set-threshold"(btn, id, val) {
+      const course = this.activeCourse();
+      if (course) { course.passingThreshold = Number(val); this.commit(); }
+    },
+
+    "set-overall-conf"(el, id) {
+      const course = this.activeCourse();
+      if (course) { course.overallConfidence = Number(el.value); this.save(); }
+    },
+
+    "set-units"(el, id) {
+      const course = this.activeCourse();
+      if (course) { course.units = Number(el.value) || 3; this.commit(); }
+    },
+
+    "add-comp"(btn, courseId) {
+      const course = this.activeCourse();
+      if (!course) return;
+      const name = prompt("Component name:");
+      if (!name || !name.trim()) return;
+      course.components.push(Models.createComponent(name));
       this.commit();
     },
 
-    "what-if"(btn, courseId) {
-      const card  = btn.closest("[data-course]");
-      const catId = this.fieldVal(card, "wi-cat");
-      const score = this.fieldVal(card, "wi-score");
-      const max   = this.fieldVal(card, "wi-max");
-      const out   = card.querySelector("#what-if-result");
-      if (score === "" || max === "" || Number(max) <= 0) {
-        out.textContent = "Enter a score and a max above.";
-        return;
-      }
+    "delete-comp"(btn, compId) {
       const course = this.activeCourse();
-      const { before, after } = Calc.whatIf(course, catId, score, max);
-      const arrow = after >= before ? "↑" : "↓";
-      out.innerHTML = `Grade: <strong>${UI.fmt(before)}</strong> → <strong>${UI.fmt(after)}</strong> ${arrow}`;
+      if (!course) return;
+      if (!confirm("Delete this component?")) return;
+      course.components = course.components.filter(c => c.id !== compId);
+      this.commit();
     },
-  },
 
-  findCategory(catId) {
-    const course = this.activeCourse();
-    return course ? course.categories.find((c) => c.id === catId) : null;
+    "set-comp-name"(el) {
+      const comp = this.findComp(el.dataset.id);
+      if (comp) comp.name = el.value;
+    },
+
+    "set-comp-weight"(el) {
+      const comp = this.findComp(el.dataset.id);
+      if (comp) { comp.weight = Number(el.value) || 0; this.commit(); }
+    },
+
+    "set-comp-conf"(el) {
+      const comp = this.findComp(el.dataset.id);
+      if (comp) { comp.confidence = Number(el.value); this.save(); }
+    },
+
+    "add-subcomp"(btn, compId) {
+      const comp = this.findComp(compId);
+      if (!comp) return;
+      const name = prompt("Subcomponent name (e.g. Exam A):");
+      if (!name || !name.trim()) return;
+      comp.subcomponents.push(Models.createSubcomponent(name));
+      this.commit();
+    },
+
+    "delete-subcomp"(btn) {
+      const comp = this.findComp(btn.dataset.comp);
+      if (!comp) return;
+      const subId = btn.dataset.sub;
+      if (!confirm("Remove this subcomponent?")) return;
+      comp.subcomponents = comp.subcomponents.filter(s => s.id !== subId);
+      this.commit();
+    },
+
+    "set-sub-name"(el) {
+      const comp = this.findComp(el.dataset.comp);
+      if (!comp) return;
+      const sub = comp.subcomponents.find(s => s.id === el.dataset.sub);
+      if (sub) sub.name = el.value;
+    },
+
+    "set-sub-marks"(el) {
+      const comp = this.findComp(el.dataset.comp);
+      if (!comp) return;
+      const sub = comp.subcomponents.find(s => s.id === el.dataset.sub);
+      if (sub) sub.totalMarks = el.value === "" ? null : Number(el.value);
+    },
   },
 };
 
 document.addEventListener("DOMContentLoaded", () => App.init());
-window.addEventListener("resize", () => App.drawCharts());

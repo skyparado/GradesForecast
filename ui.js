@@ -1,487 +1,449 @@
 /* ============================================================================
- * ui.js — pure HTML builders, three screens
+ * ui.js — HTML builders for all 4 screens
  * ========================================================================== */
 
 const UI = {
   esc(s) {
-    return String(s).replace(/[&<>"']/g, (c) =>
+    return String(s).replace(/[&<>"']/g, c =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
     );
   },
 
-  fmt(n) {
-    return n === null || n === undefined || isNaN(n) ? "—" : n.toFixed(1);
-  },
-
-  gradeDotClass(grade, target) {
-    if (grade === null || isNaN(grade)) return "grade-dot--none";
-    if (grade >= target)      return "grade-dot--high";
-    if (grade >= target - 10) return "grade-dot--medium";
-    return "grade-dot--low";
-  },
-
-  gradeColorClass(grade, target) {
-    if (grade === null || isNaN(grade)) return "";
-    if (grade >= target)      return "grade--great";
-    if (grade >= target - 10) return "grade--ok";
-    return "grade--low";
-  },
+  confLabel(lvl) { return ["LOW", "MEDIUM", "HIGH"][Number(lvl)] ?? "MEDIUM"; },
+  confVal(lvl)   { return Calc.cv(lvl); },
 
   // ==========================================================================
-  // SCREEN 1 — Terms
+  // PAGE 1 — Home
   // ==========================================================================
-
-  termsScreen(state) {
-    const cards = state.terms.map((t) => {
-      const count = t.subjects.length;
-      return `
-        <div class="term-card" data-action="select-term" data-id="${t.id}" title="Open ${this.esc(t.name)}">
-          <div class="term-card__body">
-            <h3 class="term-card__name">${this.esc(t.name)}</h3>
-            <span class="term-card__count">${count} course${count !== 1 ? "s" : ""}</span>
-          </div>
-          <span class="term-card__arrow">→</span>
-          <button class="icon-btn term-card__del" data-action="delete-term" data-id="${t.id}" title="Delete term">✕</button>
-        </div>`;
-    }).join("");
+  homeScreen(state) {
+    const cards = state.terms.map(t => `
+      <div class="term-card" data-action="select-term" data-id="${t.id}">
+        <span class="term-card__name">${this.esc(t.name)}</span>
+        <span class="term-card__count">${t.courses.length} course${t.courses.length !== 1 ? "s" : ""}</span>
+        <button class="term-card__del" data-action="delete-term" data-id="${t.id}" title="Delete">✕</button>
+      </div>`).join("");
 
     return `
-      <div class="screen screen--terms">
-        <header class="topbar">
-          <div class="brand">
-            <span class="brand__mark">◆</span>
+      <div class="screen screen--home">
+        <header class="home-header">
+          <div class="home-brand">
+            <div class="home-brand__icon">◆</div>
             <div>
-              <h1>Coursemap</h1>
-              <p class="brand__tag">Know where you stand.</p>
+              <h1 class="home-brand__title">DL Planner</h1>
+              <p class="home-brand__sub">Dean's List grade tracker</p>
             </div>
           </div>
-          <button class="ghost-btn danger-btn" data-action="reset-all">Reset all</button>
+          <button class="ghost-btn danger" data-action="reset-all">Reset all</button>
         </header>
 
-        <section class="terms-section">
-          <h2 class="section-title">Your terms</h2>
-          <div class="terms-grid">
-            ${cards}
-            <div class="term-card term-card--add">
-              <p class="add-card__label">New term</p>
-              <input id="new-term-name" type="text" placeholder="e.g. Fall 2026" />
-              <button class="primary-btn" data-action="add-term">+ Add term</button>
-            </div>
+        <p class="section-eyebrow">choose term</p>
+        <div class="terms-grid">
+          ${cards}
+          <div class="term-card term-card--add" data-action="prompt-add-term">
+            <div class="add-card__icon">+</div>
+            <span class="add-card__label">add new term</span>
           </div>
-        </section>
+        </div>
       </div>`;
   },
 
   // ==========================================================================
-  // SCREEN 2 — Dashboard (all courses in a term)
+  // PAGE 2 — Summary
   // ==========================================================================
-
-  dashboardScreen(term, calibrationLog) {
+  summaryScreen(term) {
     if (!term) return `<p class="empty">Term not found.</p>`;
 
-    const priorityHtml = this.priorityBoard(term, calibrationLog);
+    const dl = term.dlTarget || 3.0;
+    const projGWA = Calc.termProjGWA(term.courses);
+    const goalGWA = Calc.termGoalGWA(term.courses);
+    const gap     = Calc.dlGap(term.courses, dl);
+    const unreachable = gap !== null && gap > 0;
 
-    const courseCards = term.subjects.map((s) => {
-      const grade = Calc.currentGrade(s);
-      const range = Calc.gradeRange(s, calibrationLog);
-      const dot   = this.gradeDotClass(grade, s.target);
-      const gradeColor = this.gradeColorClass(grade, s.target);
-      const pct   = grade !== null ? Math.min(100, (grade / s.target) * 100).toFixed(1) : 0;
+    const gwaBar = term.courses.length ? `
+      <div class="gwa-bar">
+        <div class="gwa-bar__stat">
+          <span class="gwa-bar__label">Projected GWA</span>
+          <span class="gwa-bar__val gwa-bar__val--proj">${Calc.fmt(projGWA)}</span>
+        </div>
+        <div class="gwa-bar__divider"></div>
+        <div class="gwa-bar__stat">
+          <span class="gwa-bar__label">Goal GWA</span>
+          <span class="gwa-bar__val gwa-bar__val--goal">${Calc.fmt(goalGWA)}</span>
+        </div>
+        <div class="gwa-bar__divider"></div>
+        <div class="gwa-bar__stat">
+          <span class="gwa-bar__label">Target</span>
+          <span class="gwa-bar__val gwa-bar__val--target">${dl.toFixed(2)}</span>
+        </div>
+      </div>` : "";
 
-      const predLine = range && !range.locked
-        ? `<span class="course-card__pred">predicted ${range.low.toFixed(0)}–${range.high.toFixed(0)}%</span>` : "";
+    const banner = unreachable ? `
+      <div class="dl-banner dl-banner--warn">
+        ⚠ DL not achievable under current projections — goal GWA is ${Calc.fmt(goalGWA)}, target is ${dl.toFixed(2)}.
+        Push: ${Calc.subjectsToPush(term.courses).slice(0, 2).map(c => this.esc(c.name)).join(", ")}.
+      </div>` : (term.courses.length && !unreachable && gap !== null ? `
+      <div class="dl-banner dl-banner--ok">
+        ✓ DL is achievable — goal GWA ${Calc.fmt(goalGWA)} meets target ${dl.toFixed(2)}.
+      </div>` : "");
 
-      const catRows = s.categories.slice(0, 3).map((c) => {
-        const avg = Calc.categoryAverage(c);
-        return `<div class="course-card__cat">
-          <span>${this.esc(c.name)}</span>
-          <span>${c.weight}%</span>
-          <span class="mono">${avg !== null ? avg.toFixed(0) + "%" : "—"}</span>
-        </div>`;
-      }).join("");
-      const more = s.categories.length > 3
-        ? `<div class="course-card__cat course-card__more">+${s.categories.length - 3} more</div>` : "";
-
-      return `
-        <div class="course-card" data-action="select-course" data-id="${s.id}">
-          <div class="course-card__header">
-            <div>
-              <h3 class="course-card__name">${this.esc(s.name)}</h3>
-              <span class="course-card__target">target ${s.target}%</span>
-            </div>
-            <div class="course-card__grade-wrap">
-              <span class="course-card__grade ${gradeColor}">${this.fmt(grade)}</span>
-              <span class="subject-pill__dot ${dot}"></span>
-            </div>
-          </div>
-          <div class="course-card__bar-wrap">
-            <div class="course-card__bar-fill" style="width:${pct}%"></div>
-          </div>
-          ${predLine}
-          ${s.categories.length ? `<div class="course-card__cats">${catRows}${more}</div>` : `<p class="course-card__empty">Click to add categories</p>`}
-          <div class="course-card__footer">
-            <span class="course-card__open">Open →</span>
-            <button class="icon-btn course-card__del" data-action="delete-course" data-id="${s.id}" title="Remove course">✕</button>
-          </div>
-        </div>`;
-    }).join("");
+    const courseCards = term.courses.map(course => this.courseCard(course, dl)).join("");
 
     return `
-      <div class="screen screen--dashboard">
+      <div class="screen screen--summary">
         <header class="topbar">
-          <button class="ghost-btn back-btn" data-action="back-to-terms">← Terms</button>
-          <div>
-            <h1>${this.esc(term.name)}</h1>
-          </div>
+          <button class="back-btn" data-action="back-to-home">← Home</button>
+          <h1 class="topbar__title">${this.esc(term.name)}</h1>
         </header>
 
-        ${term.subjects.length ? `
-        <section class="priority card">
-          <h2 class="priority__title">Focus next</h2>
-          <p class="priority__sub">Ranked by impact, gap to target, and confidence</p>
-          ${priorityHtml}
-        </section>` : ""}
+        <div class="dl-toggle">
+          <button class="dl-toggle__btn ${dl >= 3.4 ? "active" : ""}"
+                  data-action="set-dl" data-val="3.4">
+            1st DL <span class="dl-toggle__range">3.40+</span>
+          </button>
+          <button class="dl-toggle__btn ${dl < 3.4 ? "active" : ""}"
+                  data-action="set-dl" data-val="3.0">
+            2nd DL <span class="dl-toggle__range">3.00–3.39</span>
+          </button>
+        </div>
 
-        <section class="courses-section">
-          <h2 class="section-title">Courses</h2>
-          <div class="courses-grid">
-            ${courseCards}
-            <div class="course-card course-card--add">
-              <p class="add-card__label">New course</p>
-              <input id="new-course-name" type="text" placeholder="e.g. Calculus I" />
-              <input id="new-course-target" type="number" placeholder="Target %" min="0" max="100" />
-              <button class="primary-btn" data-action="add-course">+ Add course</button>
-            </div>
-          </div>
-        </section>
+        ${gwaBar}
+        ${banner}
+
+        <div class="courses-grid">
+          ${courseCards}
+          <button class="add-course-card" data-action="add-course">
+            <span class="add-course-card__icon">+</span>
+            <span>Add course</span>
+          </button>
+        </div>
       </div>`;
   },
 
-  priorityBoard(term, calibrationLog) {
-    const recs = Calc.recommendations({ subjects: term.subjects }, calibrationLog).slice(0, 5);
-    if (!recs.length) return `<p class="empty">Add courses and categories — your priority list will appear here.</p>`;
-    return `<ol class="rec-list">${recs.map((r) => `
-      <li class="rec rec--${r.level}">
-        <span class="rec__dot"></span>
-        <div class="rec__text">
-          <strong>${this.esc(r.categoryName)}</strong>
-          <span class="rec__sub">${this.esc(r.subjectName)} · ${this.esc(r.reason)}</span>
-        </div>
-        <span class="rec__risk">${r.risk.toFixed(0)}</span>
-      </li>`).join("")}</ol>`;
-  },
+  courseCard(course, dl) {
+    const status   = Calc.cardStatus(course, dl);
+    const projGWA  = Calc.courseProjGWA(course);
+    const goalGWA  = Calc.courseGoalGWA(course);
+    const topComp  = Calc.topPriorityComp(course);
+    const wCheck   = Calc.weightCheck(course);
 
-  // ==========================================================================
-  // SCREEN 3 — Course editor
-  // ==========================================================================
+    const compRows = course.components.map(comp => {
+      const isPriority = topComp && comp.id === topComp.id;
+      const subW = comp.subcomponents.length > 0
+        ? comp.subcomponents.map(s => `
+            <div class="card-subcomp">
+              <span class="card-subcomp__name">· ${this.esc(s.name)}</span>
+              <span class="card-subcomp__w">${(comp.weight / comp.subcomponents.length).toFixed(0)}%</span>
+            </div>`).join("")
+        : "";
 
-  courseScreen(course, calibrationLog) {
-    if (!course) return `<p class="empty">Course not found.</p>`;
+      return `
+        <div class="card-comp-row">
+          <div class="card-comp-row__top">
+            <span class="card-comp-row__name">
+              ${isPriority ? `<span class="priority-dot" title="Study priority">★</span>` : ""}
+              ${this.esc(comp.name)}
+            </span>
+            <span class="card-comp-row__w">${comp.weight}%</span>
+          </div>
+          ${subW}
+        </div>`;
+    }).join("");
 
-    const grade  = Calc.currentGrade(course);
-    const range  = Calc.gradeRange(course, calibrationLog);
-    const weight = Calc.weightCheck(course);
-
-    const weightWarn = weight.ok ? "" : `
-      <div class="warn">Weights add up to ${weight.total}% — adjust categories to total 100% for accurate results.</div>`;
-
-    const predBadge = range && !range.locked ? `
-      <span class="pred-badge">Predicted: ${range.low.toFixed(0)}–${range.high.toFixed(0)}%</span>` : "";
+    const weightWarn = !wCheck.ok && course.components.length
+      ? `<div class="card-weight-warn">⚠ weights: ${wCheck.total}%/100%</div>` : "";
 
     return `
-      <div class="screen screen--course">
-        <header class="topbar">
-          <button class="ghost-btn back-btn" data-action="back-to-dashboard">← Dashboard</button>
-          <h1 class="course-title">${this.esc(course.name)}</h1>
-        </header>
-
-        <!-- Hero: natural-language grade + final calc -->
-        <div class="hero-card card">
-          <div class="hero-grade">
-            <span class="hero-grade__num">${this.fmt(grade)}<span class="hero-grade__pct">%</span></span>
-            <div class="hero-grade__meta">
-              <span class="hero-grade__label">current grade</span>
-              ${predBadge}
-            </div>
+      <div class="course-card course-card--${status}" data-action="open-score-editor" data-id="${course.id}">
+        <div class="course-card__header">
+          <div>
+            <span class="course-card__name">${this.esc(course.name)}</span>
+            <span class="course-card__units">${course.units} units · ${course.passingThreshold}% passing</span>
           </div>
+          <button class="course-card__edit" data-action="open-course-editor" data-id="${course.id}" title="Edit course">✎</button>
+        </div>
 
-          <div class="hero-sentences">
-            <p class="hero-sentence">
-              You want at least
-              <input class="inline-edit" type="number" min="0" max="100"
-                     value="${course.target}" data-action="set-target" data-id="${course.id}" />%
-              in this class.
-            </p>
-            <p class="hero-sentence">
-              Your final is worth
-              <input class="inline-edit inline-edit--sm" type="number" min="0" max="100"
-                     value="${course.finalWeight || 0}" data-action="set-final-weight" />%
-              of your grade.
-            </p>
-          </div>
+        <div class="course-card__divider"></div>
 
-          <div class="hero-result-wrap">
-            <div class="hero-result" id="final-calc-result">
-              ${this.finalCalcResult(course, calibrationLog)}
-            </div>
-            <label class="hero-conf-label">
-              <span>How confident are you about the final?</span>
-              <div class="conf-row">
-                <input type="range" min="0" max="100" value="${course.finalConfidence ?? 50}"
-                       data-action="set-final-confidence" />
-                <span class="conf__val" id="final-conf-val">${course.finalConfidence ?? 50}%</span>
-              </div>
-            </label>
-          </div>
+        <div class="course-card__comps">
+          ${compRows || `<p class="card-empty">No components — click ✎ to set up</p>`}
         </div>
 
         ${weightWarn}
 
-        <!-- Categories -->
-        <section class="cats-section">
-          <h2 class="section-title">Categories</h2>
-          ${this.categoryList(course)}
-          ${this.addCategoryForm(course)}
-        </section>
+        <div class="course-card__divider"></div>
 
-        <!-- Tools row -->
-        <div class="tools-row">
-          ${this.whatIfTool(course)}
-          ${this.goalTool(course)}
-        </div>
-
-        <!-- Calibration insights -->
-        ${this.insightsPanel(calibrationLog)}
-
-        <!-- Charts -->
-        <div class="charts">
-          <div class="chart-card">
-            <h3>Grade trend</h3>
-            <canvas id="chart-grade" height="160"></canvas>
+        <div class="course-card__footer">
+          <div class="card-standing">
+            <span class="card-standing__label">CURRENT STANDING</span>
+            <span class="card-standing__val">${Calc.fmt(projGWA)}</span>
           </div>
-          <div class="chart-card">
-            <h3>Confidence by category</h3>
-            <canvas id="chart-confidence" height="160"></canvas>
+          <div class="card-standing">
+            <span class="card-standing__label">GOAL STANDING</span>
+            <span class="card-standing__val">${Calc.fmt(goalGWA)}</span>
           </div>
         </div>
       </div>`;
   },
 
-  // ---- Final calc result (shared between hero and live update) ---------------
+  // ==========================================================================
+  // PAGE 3 — Score Editor
+  // ==========================================================================
+  scoreEditorScreen(course) {
+    if (!course) return `<p class="empty">Course not found.</p>`;
 
-  finalCalcResult(course, calibrationLog) {
-    const result = Calc.finalNeeded(course, calibrationLog);
-    if (!result) {
-      return `<span class="hero-result__empty">Set the final weight above to see what score you need.</span>`;
+    const projGWA = Calc.courseProjGWA(course);
+    const goalGWA = Calc.courseGoalGWA(course);
+
+    const rows = [];
+    for (const comp of course.components) {
+      const goalPct = Calc.cv(comp.confidence);
+
+      if (comp.subcomponents.length === 0) {
+        // Component is the leaf node
+        rows.push(this.scoreRow(comp.id, "", comp.name, comp, goalPct));
+      } else {
+        // Component header
+        rows.push(`
+          <tr class="score-comp-header">
+            <td colspan="4">${this.esc(comp.name)}</td>
+            <td class="score-comp-weight">${comp.weight}%</td>
+          </tr>`);
+        // Subcomponent rows
+        for (const sub of comp.subcomponents) {
+          rows.push(this.scoreRow(comp.id, sub.id, sub.name, sub, goalPct));
+        }
+      }
     }
-    if (result.needed > 100) {
-      return `<span class="result-impossible">You'd need over 100% on the final — try adjusting your target or recovering more points elsewhere.</span>`;
-    }
-    const adj = result.adjustedTarget !== course.target
-      ? `<span class="result-adj"> (target nudged to ${result.adjustedTarget.toFixed(1)}% — you're confident, so you're banking a little extra)</span>`
-      : "";
-    const buf = result.safetyBuffer > 0
-      ? `<span class="result-buf">+${result.safetyBuffer.toFixed(1)}% safety buffer added based on your calibration history</span>`
-      : "";
+
+    const noComps = !course.components.length
+      ? `<tr><td colspan="5" class="score-empty">No components — set up the course first.</td></tr>` : "";
+
     return `
-      <span class="hero-result__label">You need</span>
-      <strong class="result-num">${result.adjusted.toFixed(1)}%</strong>
-      <span class="hero-result__label">on your final.${adj}</span>
-      ${buf}`;
+      <div class="screen screen--score-editor">
+        <header class="topbar">
+          <button class="back-btn" data-action="back-to-summary">← Summary</button>
+          <h1 class="topbar__title">${this.esc(course.name)}</h1>
+        </header>
+
+        <div class="score-table-wrap">
+          <table class="score-table">
+            <thead>
+              <tr>
+                <th></th>
+                <th>placeholder score</th>
+                <th>real score</th>
+                <th>percentage</th>
+                <th>goal %</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${noComps}
+              ${rows.join("")}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="score-footer">
+          <div class="score-footer__gwa">
+            <span class="score-footer__label">cumulative current:</span>
+            <span class="score-footer__val">${Calc.fmt(projGWA)}</span>
+            <span class="score-footer__sep">·</span>
+            <span class="score-footer__label">goal:</span>
+            <span class="score-footer__val score-footer__val--goal">${Calc.fmt(goalGWA)}</span>
+          </div>
+          <div class="score-footer__actions">
+            <button class="btn-primary" data-action="save-scores">Save</button>
+            <button class="btn-ghost" data-action="open-course-editor" data-id="${course.id}">Edit course</button>
+            <button class="btn-ghost btn-danger" data-action="remove-course" data-id="${course.id}">Remove</button>
+          </div>
+        </div>
+      </div>`;
   },
 
-  // ---- Category list --------------------------------------------------------
+  scoreRow(compId, subId, name, entity, goalPct) {
+    const isLocked = entity.locked;
+    const hasReal  = entity.realScore !== null && Number(entity.totalMarks) > 0;
 
-  categoryList(course) {
-    if (!course.categories.length) {
-      return `<p class="empty">No categories yet — add your first one below (e.g. Exams, Homework, Quizzes).</p>`;
+    let phCell, realCell, pctCell;
+
+    if (isLocked && hasReal) {
+      const pct = (entity.realScore / entity.totalMarks) * 100;
+      const cls = pct >= goalPct ? "pct--green" : "pct--red";
+      const icon = pct >= goalPct ? "🟢" : "🔴";
+      phCell   = `<td class="score-ph score-ph--empty">—</td>`;
+      realCell = `
+        <td class="score-real score-real--locked">
+          ${entity.realScore}/${entity.totalMarks}
+          <button class="unlock-btn" data-action="unlock-score"
+                  data-comp="${compId}" data-sub="${subId}">edit</button>
+        </td>`;
+      pctCell  = `<td class="score-pct ${cls}">${pct.toFixed(0)}% ${icon}</td>`;
+    } else {
+      const phNum = entity.totalMarks
+        ? Math.round(goalPct / 100 * entity.totalMarks) : null;
+      const phDisplay = phNum !== null
+        ? `${phNum}/${entity.totalMarks}` : `${goalPct}%`;
+
+      phCell   = `<td class="score-ph">${phDisplay}</td>`;
+      realCell = `
+        <td class="score-real">
+          <div class="score-inputs">
+            <input type="number" min="0" class="score-num" placeholder="score"
+                   value="${entity.realScore ?? ""}"
+                   data-action="set-real-score" data-comp="${compId}" data-sub="${subId}" />
+            <span class="score-slash">/</span>
+            <input type="number" min="1" class="score-den" placeholder="total"
+                   value="${entity.totalMarks ?? ""}"
+                   data-action="set-total-marks" data-comp="${compId}" data-sub="${subId}" />
+          </div>
+          ${hasReal ? `<span class="score-draft">unsaved</span>` : ""}
+        </td>`;
+      pctCell  = `<td class="score-pct score-pct--auto">(auto)</td>`;
     }
 
-    return `<div class="cat-list">${course.categories.map((cat) => {
-      const avg      = Calc.categoryAverage(cat);
-      const risk     = Calc.categoryRisk(course, cat);
-      const level    = Calc.riskLevel(risk);
-      const drift    = Calc.confidenceDrift(cat);
-      const days     = Calc.daysUntil(cat.deadline);
-      const pressure = Calc.deadlinePressure(cat);
+    return `
+      <tr class="score-row ${isLocked && hasReal ? "score-row--locked" : ""} ${!subId ? "score-row--comp" : "score-row--sub"}">
+        <td class="score-name">${this.esc(name)}</td>
+        ${phCell}
+        ${realCell}
+        ${pctCell}
+        <td class="score-goal">${goalPct}%</td>
+      </tr>`;
+  },
 
-      const deadlineChip = cat.deadline ? (() => {
-        if (days < 0)  return `<span class="chip chip--red">overdue</span>`;
-        if (days <= 7) return `<span class="chip chip--red">${days}d left</span>`;
-        if (days <= 14) return `<span class="chip chip--amber">${days}d left</span>`;
-        return `<span class="chip chip--green">${days}d left</span>`;
-      })() : "";
+  // ==========================================================================
+  // PAGE 4 — Course Editor
+  // ==========================================================================
+  courseEditorScreen(course) {
+    if (!course) return `<p class="empty">Course not found.</p>`;
 
-      const driftChip = drift && drift.drifting
-        ? `<span class="chip chip--amber">↓ confidence ${drift.from}→${drift.to}%</span>` : "";
+    const wCheck = Calc.weightCheck(course);
+    const weightTotal = wCheck.total;
+    const weightOk    = wCheck.ok;
+
+    const compBlocks = course.components.map(comp => {
+      const subRows = comp.subcomponents.map(sub => `
+        <div class="sub-row" data-sub-id="${sub.id}">
+          <span class="sub-bullet">•</span>
+          <input class="sub-name-input" type="text" value="${this.esc(sub.name)}"
+                 data-action="set-sub-name" data-comp="${comp.id}" data-sub="${sub.id}" />
+          <div class="sub-marks">
+            <span class="sub-marks__slash">/</span>
+            <input type="number" min="1" class="sub-marks-input" placeholder="total marks"
+                   value="${sub.totalMarks ?? ""}"
+                   data-action="set-sub-marks" data-comp="${comp.id}" data-sub="${sub.id}" />
+          </div>
+          <button class="icon-btn" data-action="delete-subcomp"
+                  data-comp="${comp.id}" data-sub="${sub.id}" title="Remove">✕</button>
+        </div>`).join("");
 
       return `
-        <div class="cat">
-          <div class="cat__head">
-            <div class="cat__title-row">
-              <strong class="cat__name">${this.esc(cat.name)}</strong>
-              <span class="risk-badge risk-badge--${level}">${level} risk</span>
-              ${deadlineChip}${driftChip}
+        <div class="comp-block" data-comp-id="${comp.id}">
+          <div class="comp-block__header">
+            <input class="comp-name-input" type="text" value="${this.esc(comp.name)}"
+                   data-action="set-comp-name" data-id="${comp.id}" />
+            <div class="comp-weight-wrap">
+              <input type="number" min="0" max="100" class="comp-weight-input"
+                     value="${comp.weight}"
+                     data-action="set-comp-weight" data-id="${comp.id}" />
+              <span class="comp-weight-unit">%</span>
             </div>
-            <div class="cat__stats">
-              <span class="cat__avg-label">avg</span>
-              <span class="cat__avg">${avg !== null ? avg.toFixed(1) + "%" : "—"}</span>
-            </div>
-            <button class="icon-btn" data-action="delete-category" data-id="${cat.id}" title="Delete category">✕</button>
+            <button class="icon-btn icon-btn--danger" data-action="delete-comp"
+                    data-id="${comp.id}" title="Delete component">✕</button>
           </div>
 
-          ${pressure > 0.3 ? `<div class="deadline-bar-wrap"><div class="deadline-bar-fill" style="width:${(pressure * 100).toFixed(0)}%"></div></div>` : ""}
-
-          <div class="cat__controls">
-            <label class="ctrl-label">
-              Weight
-              <div class="ctrl-input-wrap">
-                <input type="number" min="0" max="100" value="${cat.weight}"
-                  data-action="set-weight" data-id="${cat.id}" class="ctrl-num" />
-                <span class="ctrl-unit">%</span>
-              </div>
-            </label>
-            <label class="ctrl-label conf">
-              Confidence
-              <div class="conf-row">
-                <input type="range" min="0" max="100" value="${cat.confidence}"
-                  data-action="set-confidence" data-id="${cat.id}" />
-                <span class="conf__val">${cat.confidence}%</span>
-              </div>
-            </label>
-            <label class="ctrl-label">
-              Deadline
-              <input type="date" value="${cat.deadline || ""}"
-                data-action="set-deadline" data-id="${cat.id}" class="ctrl-date" />
-            </label>
+          <div class="comp-conf">
+            <span class="comp-conf__label">confidence</span>
+            <div class="conf-slider-wrap">
+              <span class="conf-slider__edge">LOW</span>
+              <input type="range" min="0" max="2" step="1" class="conf-slider"
+                     value="${comp.confidence}"
+                     data-action="set-comp-conf" data-id="${comp.id}" />
+              <span class="conf-slider__edge">HIGH</span>
+              <span class="conf-slider__val conf-val--${comp.confidence}">${this.confLabel(comp.confidence)}</span>
+            </div>
           </div>
 
-          ${this.scoreList(cat)}
-          ${this.addScoreForm(cat)}
+          <div class="subcomp-list">
+            ${subRows}
+          </div>
+
+          <button class="add-sub-btn" data-action="add-subcomp" data-id="${comp.id}">
+            + add subcomponent
+          </button>
         </div>`;
-    }).join("")}</div>`;
-  },
+    }).join("");
 
-  scoreList(cat) {
-    if (!cat.scores.length) return `<p class="scores-empty">No scores yet.</p>`;
-    return `<ul class="score-list">${cat.scores.map((s) => {
-      const pct     = s.max > 0 ? ((s.score / s.max) * 100).toFixed(0) : 0;
-      const confTag = s.confidenceAtEntry !== null
-        ? `<span class="score-conf" title="Confidence when entered">${s.confidenceAtEntry}% conf</span>` : "";
-      return `<li>
-        <span class="score-label">${this.esc(s.label)}</span>
-        <span class="score-val">${s.score}/${s.max} <em>${pct}%</em></span>
-        ${confTag}
-        <button class="icon-btn" data-action="delete-score" data-id="${cat.id}" data-score="${s.id}" title="Remove score">✕</button>
-      </li>`;
-    }).join("")}</ul>`;
-  },
-
-  addScoreForm(cat) {
     return `
-      <div class="add-score-form mini-form" data-cat="${cat.id}">
-        <input type="text" placeholder="Label (e.g. Quiz 1)" data-field="label" />
-        <input type="number" placeholder="Score" data-field="score" />
-        <span class="slash">/</span>
-        <input type="number" placeholder="Max" data-field="max" />
-        <input type="number" min="0" max="100" placeholder="Conf %" data-field="confidence-at-entry"
-               title="How confident were you before seeing the result?" />
-        <button data-action="add-score" data-id="${cat.id}" class="add-score-btn">+ Add</button>
-      </div>`;
-  },
+      <div class="screen screen--course-editor">
+        <header class="topbar">
+          <button class="back-btn" data-action="back-to-summary">← Summary</button>
+          <div class="topbar__center">
+            <input class="course-name-input" type="text" value="${this.esc(course.name)}"
+                   data-action="set-course-name" data-id="${course.id}" placeholder="Course name" />
+            <span class="topbar__sub">edit course</span>
+          </div>
+          <div class="threshold-toggle">
+            <button class="threshold-btn ${course.passingThreshold === 60 ? "active" : ""}"
+                    data-action="set-threshold" data-id="${course.id}" data-val="60">60%</button>
+            <button class="threshold-btn ${course.passingThreshold === 70 ? "active" : ""}"
+                    data-action="set-threshold" data-id="${course.id}" data-val="70">70%</button>
+          </div>
+        </header>
 
-  addCategoryForm(course) {
-    return `
-      <div class="add-cat-form mini-form" data-course="${course.id}">
-        <input type="text" placeholder="Category name (e.g. Exams)" data-field="name" />
-        <input type="number" placeholder="Weight %" data-field="weight" />
-        <button data-action="add-category" data-id="${course.id}" class="primary-btn">+ Add category</button>
-      </div>`;
-  },
+        <div class="editor-section">
+          <div class="editor-row">
+            <div class="editor-field">
+              <label class="editor-label">CONFIDENCE LEVEL</label>
+              <div class="conf-slider-wrap conf-slider-wrap--lg">
+                <span class="conf-slider__edge">LOW</span>
+                <input type="range" min="0" max="2" step="1" class="conf-slider conf-slider--lg"
+                       value="${course.overallConfidence}"
+                       data-action="set-overall-conf" data-id="${course.id}" />
+                <span class="conf-slider__edge">HIGH</span>
+                <span class="conf-slider__val conf-slider__val--lg conf-val--${course.overallConfidence}">
+                  ${this.confLabel(course.overallConfidence)}
+                </span>
+              </div>
+              <p class="conf-hint">
+                → ${this.confVal(course.overallConfidence)}% target
+                (GWA ${Calc.gwa(this.confVal(course.overallConfidence), course.passingThreshold).toFixed(1)})
+              </p>
+            </div>
 
-  // ---- What-if tool ---------------------------------------------------------
-
-  whatIfTool(course) {
-    const opts     = course.categories.map((c) => `<option value="${c.id}">${this.esc(c.name)}</option>`).join("");
-    const disabled = course.categories.length ? "" : "disabled";
-    return `
-      <div class="tool-card" data-course="${course.id}">
-        <h3>What if…</h3>
-        <p class="tool-hint">See how one more score would move your grade.</p>
-        <div class="mini-form">
-          <select data-field="wi-cat" ${disabled}>${opts || `<option>— add categories first —</option>`}</select>
-          <input type="number" placeholder="Score" data-field="wi-score" ${disabled} />
-          <span class="slash">/</span>
-          <input type="number" placeholder="Max" data-field="wi-max" ${disabled} />
-          <button data-action="what-if" data-id="${course.id}" ${disabled}>Simulate</button>
+            <div class="editor-field editor-field--sm">
+              <label class="editor-label">UNITS</label>
+              <input type="number" min="1" max="12" class="units-input"
+                     value="${course.units}"
+                     data-action="set-units" data-id="${course.id}" />
+            </div>
+          </div>
         </div>
-        <p class="tool-result" id="what-if-result"></p>
-      </div>`;
-  },
 
-  // ---- Goal tool ------------------------------------------------------------
+        <div class="editor-section">
+          <div class="editor-section__head">
+            <h2 class="editor-section__title">COMPONENTS</h2>
+            <div class="weight-counter ${weightOk ? "weight-counter--ok" : "weight-counter--warn"}">
+              ${weightTotal.toFixed(0)}% / 100%
+            </div>
+          </div>
+          ${!weightOk && course.components.length
+            ? `<div class="weight-warn">⚠ Component weights must total 100% — currently ${weightTotal.toFixed(0)}%</div>`
+            : ""}
 
-  goalTool(course) {
-    const g = Calc.goalNeeded(course);
-    let msg;
-    if (g.status === "no-remaining")   msg = `Every category has a score — your grade is final.`;
-    else if (g.status === "already-met") msg = `You've already hit your ${g.target}% target — you're good.`;
-    else if (g.status === "impossible")  msg = `Reaching ${g.target}% requires over 100% on the remaining ${g.remainingWeight.toFixed(0)}% of the grade. Consider adjusting your target.`;
-    else msg = `Average <strong>${g.needed.toFixed(1)}%</strong> on the remaining ${g.remainingWeight.toFixed(0)}% to finish at ${g.target}%.`;
-    return `
-      <div class="tool-card">
-        <h3>Goal calculator</h3>
-        <p class="tool-hint">What do you need to average on remaining work?</p>
-        <p class="tool-result">${msg}</p>
-      </div>`;
-  },
+          <div class="comp-list">
+            ${compBlocks}
+          </div>
 
-  // ---- Calibration insights panel ------------------------------------------
+          <button class="add-comp-btn" data-action="add-comp" data-id="${course.id}">
+            + add component
+          </button>
+        </div>
 
-  insightsPanel(calibrationLog) {
-    const cal = Calc.calibrationSummary(calibrationLog);
-    if (!cal.ready) {
-      const needed = Math.max(0, 3 - cal.count);
-      return `
-        <div class="insights-panel insights-panel--building">
-          <h3 class="insights-title">Personal calibration model</h3>
-          <p class="insights-body">
-            Add <strong>${needed} more score${needed === 1 ? "" : "s"} with confidence ratings</strong>
-            (the "Conf %" field when adding a score) to unlock your personal prediction model.
-          </p>
-          <div class="cal-progress-wrap">
-            <div class="cal-progress-fill" style="width:${Math.round((cal.count / 3) * 100)}%"></div>
-          </div>
-          <span class="cal-progress-label">${cal.count} / 3 data points</span>
-        </div>`;
-    }
-    const tendencyColor = cal.tendency === "well-calibrated" ? "var(--low)"
-                        : cal.tendency === "underconfident"  ? "var(--brand)"
-                        : "var(--amber)";
-    const tendencyMsg = cal.tendency === "well-calibrated"
-      ? "Your confidence ratings match your actual scores really well."
-      : cal.tendency === "underconfident"
-      ? `You typically score <strong>${Math.abs(cal.avgOffset)}% higher</strong> than your confidence suggests — your gut undersells you.`
-      : `You typically score <strong>${Math.abs(cal.avgOffset)}% lower</strong> than your confidence suggests — factor that in.`;
-    return `
-      <div class="insights-panel">
-        <h3 class="insights-title">Personal calibration model
-          <span class="insights-badge" style="background:${tendencyColor}20;color:${tendencyColor}">${cal.tendency}</span>
-        </h3>
-        <p class="insights-body">${tendencyMsg}</p>
-        <div class="insights-stats">
-          <div class="insights-stat">
-            <span class="insights-stat__val">${cal.count}</span>
-            <span class="insights-stat__label">data points</span>
-          </div>
-          <div class="insights-stat">
-            <span class="insights-stat__val">${cal.avgOffset > 0 ? "+" : ""}${cal.avgOffset}%</span>
-            <span class="insights-stat__label">avg offset</span>
-          </div>
-          <div class="insights-stat">
-            <span class="insights-stat__val">${(cal.r2 * 100).toFixed(0)}%</span>
-            <span class="insights-stat__label">model fit</span>
-          </div>
+        <div class="editor-footer">
+          <button class="btn-ghost btn-danger" data-action="remove-course" data-id="${course.id}">
+            Remove course
+          </button>
         </div>
       </div>`;
   },
