@@ -1,14 +1,9 @@
 const Models = {
-  uid(p = "id") {
-    return p + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-  },
-
-  CONF_LABELS: ["Low", "Medium", "High"],
-  CONF_VALUES: [75, 82, 90],
+  uid() { return crypto.randomUUID(); },
 
   createTerm(name) {
     return {
-      id:       this.uid("t"),
+      id:       this.uid(),
       name:     name.trim(),
       courses:  [],
       dlTarget: 3.0,
@@ -17,32 +12,34 @@ const Models = {
 
   createCourse(name) {
     return {
-      id:                this.uid("c"),
+      id:                this.uid(),
       name:              name.trim(),
+      fullName:          "",
       units:             3,
-      passingThreshold:  60,   // 60 or 70
-      overallConfidence: 1,    // 0=Low 1=Med 2=High
+      passingThreshold:  60,
+      overallConfidence: 1,
+      flatGrade:         false,
+      flatScore:         null,
       components:        [],
     };
   },
 
   createComponent(name, weight = 0) {
     return {
-      id:             this.uid("comp"),
-      name:           name.trim(),
-      weight:         Number(weight),
-      confidence:     1,    // 0=Low 1=Med 2=High
-      subcomponents:  [],
-      // used when subcomponents.length === 0
-      totalMarks:     null,
-      realScore:      null,
-      locked:         false,
+      id:            this.uid(),
+      name:          name.trim(),
+      weight:        Number(weight),
+      confidence:    1,
+      subcomponents: [],
+      totalMarks:    null,
+      realScore:     null,
+      locked:        false,
     };
   },
 
   createSubcomponent(name) {
     return {
-      id:         this.uid("sub"),
+      id:         this.uid(),
       name:       name.trim(),
       totalMarks: null,
       realScore:  null,

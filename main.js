@@ -1,18 +1,102 @@
 /* ============================================================================
- * main.js — controller: 4-screen navigation + all actions
+ * main.js — controller: navigation + actions + modal system
  * ========================================================================== */
+
+// ============================================================================
+// Modal — replaces native prompt() / confirm()
+// ============================================================================
+
+const Modal = {
+  _root() { return document.getElementById("modal-root"); },
+
+  _hide() { this._root().innerHTML = ""; },
+
+  confirm(msg) {
+    return new Promise(resolve => {
+      const done = val => { this._hide(); resolve(val); };
+      this._root().innerHTML = `
+        <div class="modal-backdrop" id="_mbdrop">
+          <div class="modal-box" role="dialog" aria-modal="true">
+            <p class="modal-msg">${UI.esc(msg)}</p>
+            <div class="modal-actions">
+              <button class="modal-btn modal-btn--danger" id="_mok">Confirm</button>
+              <button class="modal-btn modal-btn--ghost"  id="_mcx">Cancel</button>
+            </div>
+          </div>
+        </div>`;
+      document.getElementById("_mok").onclick = () => done(true);
+      document.getElementById("_mcx").onclick = () => done(false);
+      document.getElementById("_mbdrop").onclick = e => {
+        if (e.target === e.currentTarget) done(false);
+      };
+    });
+  },
+
+  prompt(msg, placeholder = "") {
+    return new Promise(resolve => {
+      const done = val => { this._hide(); resolve(val); };
+      this._root().innerHTML = `
+        <div class="modal-backdrop" id="_mbdrop">
+          <div class="modal-box" role="dialog" aria-modal="true">
+            <p class="modal-msg">${UI.esc(msg)}</p>
+            <input class="modal-input" type="text"
+                   placeholder="${UI.esc(placeholder)}" id="_minput" />
+            <div class="modal-actions">
+              <button class="modal-btn modal-btn--primary" id="_mok">OK</button>
+              <button class="modal-btn modal-btn--ghost"   id="_mcx">Cancel</button>
+            </div>
+          </div>
+        </div>`;
+      const inp = document.getElementById("_minput");
+      inp.focus();
+      const submit = () => done(inp.value.trim() || null);
+      document.getElementById("_mok").onclick = submit;
+      document.getElementById("_mcx").onclick = () => done(null);
+      inp.onkeydown = e => {
+        if (e.key === "Enter")  submit();
+        if (e.key === "Escape") done(null);
+      };
+      document.getElementById("_mbdrop").onclick = e => {
+        if (e.target === e.currentTarget) done(null);
+      };
+    });
+  },
+};
+
+// ============================================================================
+// App
+// ============================================================================
 
 const App = {
   state: null,
   nav:   { screen: "home", termId: null, courseId: null },
 
-  init() {
-    this.state = Storage.load();
+  async init() {
+    const app = document.getElementById("app");
+    app.innerHTML = `
+      <div class="init-loading">
+        <div class="spinner"></div>
+        <p>Loading…</p>
+      </div>`;
+
+    try {
+      this.state = await Storage.load();
+    } catch (err) {
+      app.innerHTML = `
+        <div class="init-error">
+          <p>Failed to connect to database.</p>
+          <small>${UI.esc(String(err.message))}</small>
+        </div>`;
+      return;
+    }
+
     this.applyTheme(localStorage.getItem("dlplanner.theme") || "dark");
     this.injectThemeToggle();
-    document.getElementById("app").addEventListener("click",  e => this.handleClick(e));
-    document.getElementById("app").addEventListener("change", e => this.handleChange(e));
-    document.getElementById("app").addEventListener("input",  e => this.handleInput(e));
+
+    app.addEventListener("click",  e => this.handleClick(e));
+    app.addEventListener("change", e => this.handleChange(e));
+    app.addEventListener("input",  e => this.handleInput(e));
+
     this.render();
   },
 
@@ -37,10 +121,7 @@ const App = {
     document.body.appendChild(btn);
   },
 
-  // ---- Save / render --------------------------------------------------------
-
-  commit() { Storage.save(this.state); this.render(); },
-  save()   { Storage.save(this.state); },
+  // ---- Render ---------------------------------------------------------------
 
   render() {
     const { screen } = this.nav;
@@ -51,7 +132,7 @@ const App = {
     if (screen === "course-editor") app.innerHTML = UI.courseEditorScreen(this.activeCourse());
   },
 
-  // ---- Navigators -----------------------------------------------------------
+  // ---- Navigation -----------------------------------------------------------
 
   goTo(screen, opts = {}) {
     this.nav = {
@@ -78,7 +159,7 @@ const App = {
   findEntity(compId, subId) {
     const comp = this.findComp(compId);
     if (!comp) return null;
-    if (!subId) return comp; // leaf component
+    if (!subId) return comp;
     return comp.subcomponents.find(s => s.id === subId) || null;
   },
 
@@ -90,26 +171,25 @@ const App = {
     e.stopPropagation();
     const { action, id, val } = btn.dataset;
     const handler = this.actions[action];
-    if (handler) handler.call(this, btn, id, val, e);
+    if (handler) {
+      const r = handler.call(this, btn, id, val, e);
+      if (r instanceof Promise) r.catch(err => console.error("[action]", action, err));
+    }
   },
 
   handleChange(e) {
     const el = e.target;
     const action = el.dataset.action;
     if (!action) return;
-    const scoreActions = ["set-real-score", "set-total-marks", "set-sub-marks",
-                          "set-sub-name", "set-comp-name"];
     const handler = this.actions[action];
     if (handler) {
-      handler.call(this, el, el.dataset.id || el.dataset.comp, el.dataset.val, e);
-      // Score/name inputs: save without re-render to preserve focus
-      if (scoreActions.includes(action)) { this.save(); return; }
+      const r = handler.call(this, el, el.dataset.id || el.dataset.comp, el.dataset.val, e);
+      if (r instanceof Promise) r.catch(err => console.error("[action]", action, err));
     }
   },
 
   handleInput(e) {
     const el = e.target;
-    // Live update slider labels without full re-render
     if (el.dataset.action === "set-overall-conf") {
       const lbl = el.closest(".conf-slider-wrap")?.querySelector(".conf-slider__val--lg");
       if (lbl) {
@@ -140,45 +220,57 @@ const App = {
 
   actions: {
 
-    // Home
-    "prompt-add-term"() {
-      const name = prompt("Term name (e.g. Y1T1):");
-      if (!name || !name.trim()) return;
-      this.state.terms.push(Models.createTerm(name));
-      this.commit();
+    // Home ----------------------------------------------------------------
+
+    async "prompt-add-term"() {
+      const name = await Modal.prompt("Term name (e.g. Y1T1):");
+      if (!name) return;
+      const term = Models.createTerm(name);
+      this.state.terms.push(term);
+      await Storage.insertTerm(term);
+      this.render();
     },
 
     "select-term"(btn, termId) {
       this.goTo("summary", { termId });
     },
 
-    "delete-term"(btn, termId) {
-      if (!confirm("Delete this term and all its courses?")) return;
+    async "delete-term"(btn, termId) {
+      const ok = await Modal.confirm("Delete this term and all its courses?");
+      if (!ok) return;
       this.state.terms = this.state.terms.filter(t => t.id !== termId);
-      this.commit();
+      this.render();
+      await Storage.deleteTerm(termId);
     },
 
-    "reset-all"() {
-      if (!confirm("Delete everything? This cannot be undone.")) return;
-      Storage.reset();
-      this.state = Storage.load();
+    async "reset-all"() {
+      const ok = await Modal.confirm("Delete everything and reload seed data? This cannot be undone.");
+      if (!ok) return;
+      this.state = { version: 1, terms: [] };
+      this.render();
+      await Storage.resetAll();
+      this.state = await Storage.load();
       this.goTo("home");
     },
 
-    // Summary
+    // Summary -------------------------------------------------------------
+
     "back-to-home"() { this.goTo("home"); },
 
     "set-dl"(btn, id, val) {
       const term = this.activeTerm();
-      if (term) { term.dlTarget = Number(val); this.commit(); }
+      if (!term) return;
+      term.dlTarget = Number(val);
+      this.render();
+      Storage.syncTerm(term).catch(console.error);
     },
 
-    "add-course"() {
+    async "add-course"() {
       const term = this.activeTerm();
       if (!term) return;
       const course = Models.createCourse("New Course");
       term.courses.push(course);
-      this.save();
+      await Storage.insertCourse(course, term.id);
       this.goTo("course-editor", { courseId: course.id });
     },
 
@@ -190,130 +282,248 @@ const App = {
       this.goTo("course-editor", { courseId });
     },
 
-    "remove-course"(btn, courseId) {
-      if (!confirm("Remove this course?")) return;
+    async "remove-course"(btn, courseId) {
+      const ok = await Modal.confirm("Remove this course?");
+      if (!ok) return;
       const term = this.activeTerm();
+      if (!term) return;
       term.courses = term.courses.filter(c => c.id !== courseId);
-      this.commit();
       this.goTo("summary");
+      await Storage.deleteCourse(courseId);
     },
 
-    // Score Editor / Course Editor
-    "back-to-summary"() { this.save(); this.goTo("summary"); },
+    // Inline grade inputs on summary screen
+
+    "set-course-pct"(el) {
+      const term = this.activeTerm();
+      const course = term?.courses.find(c => c.id === el.dataset.course);
+      if (!course || !course.components.length) return;
+      const comp = course.components[0];
+      const pct = el.value === "" ? null : Number(el.value);
+      comp.realScore  = pct;
+      comp.totalMarks = pct === null ? null : 100;
+      this.render();
+      Storage.syncComp(comp).catch(console.error);
+    },
+
+    "set-comp-pct"(el) {
+      const term   = this.activeTerm();
+      const course = term?.courses.find(c => c.id === el.dataset.course);
+      const comp   = course?.components.find(c => c.id === el.dataset.comp);
+      if (!comp) return;
+      const pct = el.value === "" ? null : Number(el.value);
+      comp.realScore  = pct;
+      comp.totalMarks = pct === null ? null : 100;
+      this.render();
+      Storage.syncComp(comp).catch(console.error);
+    },
+
+    "set-sub-pct"(el) {
+      const term   = this.activeTerm();
+      const course = term?.courses.find(c => c.id === el.dataset.course);
+      const comp   = course?.components.find(c => c.id === el.dataset.comp);
+      const sub    = comp?.subcomponents.find(s => s.id === el.dataset.sub);
+      if (!sub) return;
+      const pct = el.value === "" ? null : Number(el.value);
+      sub.realScore  = pct;
+      sub.totalMarks = pct === null ? null : 100;
+      this.render();
+      Storage.syncSub(sub).catch(console.error);
+    },
+
+    "set-flat-score"(el) {
+      const term = this.activeTerm();
+      const course = term?.courses.find(c => c.id === el.dataset.course);
+      if (!course) return;
+      const pct = el.value === "" ? null : Number(el.value);
+      course.flatScore = pct;
+      this.render();
+      Storage.syncCourse(course).catch(console.error);
+    },
+
+    // Score Editor --------------------------------------------------------
+
+    "back-to-summary"() { this.goTo("summary"); },
 
     "set-real-score"(el) {
       const entity = this.findEntity(el.dataset.comp, el.dataset.sub);
-      if (entity) entity.realScore = el.value === "" ? null : Number(el.value);
+      if (!entity) return;
+      entity.realScore = el.value === "" ? null : Number(el.value);
+      if (el.dataset.sub) {
+        Storage.syncSub(entity).catch(console.error);
+      } else {
+        Storage.syncComp(entity).catch(console.error);
+      }
     },
 
     "set-total-marks"(el) {
       const entity = this.findEntity(el.dataset.comp, el.dataset.sub);
-      if (entity) entity.totalMarks = el.value === "" ? null : Number(el.value);
+      if (!entity) return;
+      entity.totalMarks = el.value === "" ? null : Number(el.value);
+      if (el.dataset.sub) {
+        Storage.syncSub(entity).catch(console.error);
+      } else {
+        Storage.syncComp(entity).catch(console.error);
+      }
     },
 
-    "unlock-score"(btn) {
+    async "unlock-score"(btn) {
       const entity = this.findEntity(btn.dataset.comp, btn.dataset.sub);
-      if (entity) { entity.locked = false; this.commit(); }
+      if (!entity) return;
+      entity.locked = false;
+      if (btn.dataset.sub) {
+        await Storage.syncSub(entity);
+      } else {
+        await Storage.syncComp(entity);
+      }
+      this.render();
     },
 
-    "save-scores"() {
+    async "save-scores"() {
       const course = this.activeCourse();
       if (!course) return;
+      const ops = [];
       for (const comp of course.components) {
         if (!comp.subcomponents.length) {
-          if (comp.realScore !== null && comp.totalMarks > 0) comp.locked = true;
+          if (comp.realScore !== null && comp.totalMarks > 0) {
+            comp.locked = true;
+            ops.push(Storage.syncComp(comp));
+          }
         } else {
           for (const sub of comp.subcomponents) {
-            if (sub.realScore !== null && sub.totalMarks > 0) sub.locked = true;
+            if (sub.realScore !== null && sub.totalMarks > 0) {
+              sub.locked = true;
+              ops.push(Storage.syncSub(sub));
+            }
           }
         }
       }
-      this.commit();
+      await Promise.all(ops);
+      this.render();
     },
 
-    // Course Editor
-    "set-course-name"(el, id) {
+    // Course Editor -------------------------------------------------------
+
+    "set-course-name"(el) {
       const course = this.activeCourse();
-      if (course) course.name = el.value.trim() || "Untitled";
+      if (!course) return;
+      course.name = el.value.trim() || "Untitled";
+      Storage.syncCourse(course).catch(console.error);
+    },
+
+    "set-course-full-name"(el) {
+      const course = this.activeCourse();
+      if (!course) return;
+      course.fullName = el.value.trim();
+      Storage.syncCourse(course).catch(console.error);
     },
 
     "set-threshold"(btn, id, val) {
       const course = this.activeCourse();
-      if (course) { course.passingThreshold = Number(val); this.commit(); }
+      if (!course) return;
+      course.passingThreshold = Number(val);
+      this.render();
+      Storage.syncCourse(course).catch(console.error);
     },
 
-    "set-overall-conf"(el, id) {
-      const course = this.activeCourse();
-      if (course) { course.overallConfidence = Number(el.value); this.save(); }
-    },
-
-    "set-units"(el, id) {
-      const course = this.activeCourse();
-      if (course) { course.units = Number(el.value) || 3; this.commit(); }
-    },
-
-    "add-comp"(btn, courseId) {
+    "set-overall-conf"(el) {
       const course = this.activeCourse();
       if (!course) return;
-      const name = prompt("Component name:");
-      if (!name || !name.trim()) return;
-      course.components.push(Models.createComponent(name));
-      this.commit();
+      course.overallConfidence = Number(el.value);
+      Storage.syncCourse(course).catch(console.error);
     },
 
-    "delete-comp"(btn, compId) {
+    "set-units"(el) {
       const course = this.activeCourse();
       if (!course) return;
-      if (!confirm("Delete this component?")) return;
+      course.units = Number(el.value) || 3;
+      this.render();
+      Storage.syncCourse(course).catch(console.error);
+    },
+
+    async "add-comp"(btn, courseId) {
+      const course = this.activeCourse();
+      if (!course) return;
+      const name = await Modal.prompt("Component name:");
+      if (!name) return;
+      const comp = Models.createComponent(name);
+      course.components.push(comp);
+      await Storage.insertComp(comp, course.id);
+      this.render();
+    },
+
+    async "delete-comp"(btn, compId) {
+      const course = this.activeCourse();
+      if (!course) return;
+      const ok = await Modal.confirm("Delete this component?");
+      if (!ok) return;
       course.components = course.components.filter(c => c.id !== compId);
-      this.commit();
+      this.render();
+      await Storage.deleteComp(compId);
     },
 
     "set-comp-name"(el) {
       const comp = this.findComp(el.dataset.id);
-      if (comp) comp.name = el.value;
+      if (!comp) return;
+      comp.name = el.value;
+      Storage.syncComp(comp).catch(console.error);
     },
 
     "set-comp-weight"(el) {
       const comp = this.findComp(el.dataset.id);
-      if (comp) { comp.weight = Number(el.value) || 0; this.commit(); }
+      if (!comp) return;
+      comp.weight = Number(el.value) || 0;
+      this.render();
+      Storage.syncComp(comp).catch(console.error);
     },
 
     "set-comp-conf"(el) {
       const comp = this.findComp(el.dataset.id);
-      if (comp) { comp.confidence = Number(el.value); this.save(); }
+      if (!comp) return;
+      comp.confidence = Number(el.value);
+      Storage.syncComp(comp).catch(console.error);
     },
 
-    "add-subcomp"(btn, compId) {
+    async "add-subcomp"(btn, compId) {
       const comp = this.findComp(compId);
       if (!comp) return;
-      const name = prompt("Subcomponent name (e.g. Exam A):");
-      if (!name || !name.trim()) return;
-      comp.subcomponents.push(Models.createSubcomponent(name));
-      this.commit();
+      const name = await Modal.prompt("Subcomponent name (e.g. Exam A):");
+      if (!name) return;
+      const sub = Models.createSubcomponent(name);
+      comp.subcomponents.push(sub);
+      await Storage.insertSub(sub, comp.id);
+      this.render();
     },
 
-    "delete-subcomp"(btn) {
+    async "delete-subcomp"(btn) {
       const comp = this.findComp(btn.dataset.comp);
       if (!comp) return;
       const subId = btn.dataset.sub;
-      if (!confirm("Remove this subcomponent?")) return;
+      const ok = await Modal.confirm("Remove this subcomponent?");
+      if (!ok) return;
       comp.subcomponents = comp.subcomponents.filter(s => s.id !== subId);
-      this.commit();
+      this.render();
+      await Storage.deleteSub(subId);
     },
 
     "set-sub-name"(el) {
       const comp = this.findComp(el.dataset.comp);
       if (!comp) return;
       const sub = comp.subcomponents.find(s => s.id === el.dataset.sub);
-      if (sub) sub.name = el.value;
+      if (sub) {
+        sub.name = el.value;
+        Storage.syncSub(sub).catch(console.error);
+      }
     },
 
     "set-sub-marks"(el) {
       const comp = this.findComp(el.dataset.comp);
       if (!comp) return;
       const sub = comp.subcomponents.find(s => s.id === el.dataset.sub);
-      if (sub) sub.totalMarks = el.value === "" ? null : Number(el.value);
+      if (sub) {
+        sub.totalMarks = el.value === "" ? null : Number(el.value);
+        Storage.syncSub(sub).catch(console.error);
+      }
     },
   },
 };
