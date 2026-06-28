@@ -48,7 +48,7 @@ const UI = {
   },
 
   // ==========================================================================
-  // PAGE 2 — Summary (form table)
+  // PAGE 2 — Summary (card grid)
   // ==========================================================================
   summaryScreen(term) {
     if (!term) return `<p class="empty">Term not found.</p>`;
@@ -86,167 +86,82 @@ const UI = {
         ✓ On track — goal GWA ${Calc.fmt(goalGWA)} meets ${dl.toFixed(2)} target.
       </div>` : "");
 
-    const STATUS_ICON = { green: "✓", yellow: "~", red: "!", grey: "—" };
-
-    const rows = term.courses.map(course => {
+    const courseCards = term.courses.map(course => {
       const status   = Calc.cardStatus(course, dl);
       const cProjGWA = Calc.courseProjGWA(course);
+      const cGoalGWA = Calc.courseGoalGWA(course);
 
-      const statusCell = `<span class="status-dot status-dot--${status}"
-        title="${{ green:"On track", yellow:"Close to target", red:"At risk", grey:"No data" }[status]}">
-        ${STATUS_ICON[status]}</span>`;
-
-      const actions = `
-        <button class="icon-btn" data-action="open-course-editor" data-id="${course.id}" title="Edit structure">✎</button>
-        <button class="icon-btn icon-btn--danger" data-action="remove-course" data-id="${course.id}" title="Remove">✕</button>`;
-
-      const nameCell = `
-        <span class="cf-name__code">${this.esc(course.name)}</span>
-        ${course.fullName ? `<span class="cf-name__full">${this.esc(course.fullName)}</span>` : ""}`;
-
-      // ---- flat grade (e.g. PE) ------------------------------------------
+      let compRows = "";
       if (course.flatGrade) {
-        const val = course.flatScore !== null ? String(course.flatScore) : "";
-        return `
-          <tr class="course-row course-row--${status}">
-            <td class="cf-name">${nameCell}</td>
-            <td class="cf-units">${course.units}</td>
-            <td class="cf-grade">
-              <div class="grade-input-wrap">
-                <input type="number" min="0" max="100" step="0.01" class="grade-input"
-                       value="${this.esc(val)}" placeholder="—"
-                       data-action="set-flat-score" data-course="${course.id}" />
-                <span class="grade-pct-sign">%</span>
-              </div>
-            </td>
-            <td class="cf-gwa"><span class="gwa-chip">${Calc.fmt(cProjGWA, 1)}</span></td>
-            <td class="cf-status">${statusCell}</td>
-            <td class="cf-actions">${actions}</td>
-          </tr>`;
-      }
+        const pct = course.flatScore !== null ? `${course.flatScore}%` : "—";
+        compRows = `
+          <div class="card-comp-row">
+            <div class="card-comp-row__top">
+              <span class="card-comp-row__name">GRADE</span>
+              <span class="card-comp-row__w">${pct}</span>
+            </div>
+          </div>`;
+      } else if (!course.components.length) {
+        compRows = `<span class="card-empty">no components yet</span>`;
+      } else {
+        compRows = course.components.map(comp => {
+          let scoreDisplay;
+          if (!comp.subcomponents.length && comp.realScore !== null && comp.totalMarks > 0) {
+            scoreDisplay = `${(comp.realScore / comp.totalMarks * 100).toFixed(0)}%`;
+          } else {
+            scoreDisplay = `${comp.weight}%`;
+          }
 
-      // ---- no components --------------------------------------------------
-      if (!course.components.length) {
-        return `
-          <tr class="course-row course-row--grey">
-            <td class="cf-name">${nameCell}</td>
-            <td class="cf-units">${course.units}</td>
-            <td class="cf-grade"><span class="multi-label">no components</span></td>
-            <td class="cf-gwa">—</td>
-            <td class="cf-status">${statusCell}</td>
-            <td class="cf-actions">${actions}</td>
-          </tr>`;
-      }
-
-      // ---- single leaf component (simple course) --------------------------
-      const isSimple = course.components.length === 1 &&
-                       course.components[0].subcomponents.length === 0;
-      if (isSimple) {
-        const comp = course.components[0];
-        const pct  = comp.realScore !== null && comp.totalMarks > 0
-          ? (comp.realScore / comp.totalMarks * 100).toFixed(2) : "";
-        return `
-          <tr class="course-row course-row--${status}">
-            <td class="cf-name">${nameCell}</td>
-            <td class="cf-units">${course.units}</td>
-            <td class="cf-grade">
-              <div class="grade-input-wrap">
-                <input type="number" min="0" max="100" step="0.01" class="grade-input"
-                       value="${pct}" placeholder="—"
-                       data-action="set-course-pct" data-course="${course.id}" />
-                <span class="grade-pct-sign">%</span>
-              </div>
-            </td>
-            <td class="cf-gwa"><span class="gwa-chip">${Calc.fmt(cProjGWA, 1)}</span></td>
-            <td class="cf-status">${statusCell}</td>
-            <td class="cf-actions">${actions}</td>
-          </tr>`;
-      }
-
-      // ---- multi-component course -----------------------------------------
-      const compRows = course.components.flatMap(comp => {
-        // Component with subcomponents — no direct input, show sub-rows
-        if (comp.subcomponents.length) {
           const subRows = comp.subcomponents.map(sub => {
-            const spct = sub.realScore !== null && sub.totalMarks > 0
-              ? (sub.realScore / sub.totalMarks * 100).toFixed(2) : "";
+            const subScore = sub.realScore !== null && sub.totalMarks > 0
+              ? `${(sub.realScore / sub.totalMarks * 100).toFixed(0)}%` : "";
             return `
-              <tr class="course-row course-row--sub course-row--sub2">
-                <td class="cf-name cf-name--sub2">
-                  <span class="sub-indent">↳</span>${this.esc(sub.name)}
-                  ${sub.locked ? `<span class="locked-tag">locked</span>` : ""}
-                </td>
-                <td class="cf-units">—</td>
-                <td class="cf-grade">
-                  <div class="grade-input-wrap">
-                    <input type="number" min="0" max="100" step="0.01" class="grade-input"
-                           value="${spct}" placeholder="—"
-                           data-action="set-sub-pct"
-                           data-course="${course.id}" data-comp="${comp.id}" data-sub="${sub.id}" />
-                    <span class="grade-pct-sign">%</span>
-                  </div>
-                </td>
-                <td class="cf-gwa">—</td>
-                <td class="cf-status"></td>
-                <td class="cf-actions"></td>
-              </tr>`;
-          });
+              <div class="card-subcomp">
+                <span class="card-subcomp__name">• ${this.esc(sub.name)}</span>
+                <span class="card-subcomp__w">${subScore}</span>
+              </div>`;
+          }).join("");
 
-          return [`
-            <tr class="course-row course-row--sub">
-              <td class="cf-name cf-name--sub">
-                <span class="sub-indent">↳</span>${this.esc(comp.name)}
-                <span class="comp-weight-tag">${comp.weight}%</span>
-                <span class="multi-label">${comp.subcomponents.length} items</span>
-              </td>
-              <td class="cf-units">—</td>
-              <td class="cf-grade"></td>
-              <td class="cf-gwa">—</td>
-              <td class="cf-status"></td>
-              <td class="cf-actions"></td>
-            </tr>`,
-            ...subRows,
-          ];
-        }
-
-        // Leaf component — direct input
-        const cpct = comp.realScore !== null && comp.totalMarks > 0
-          ? (comp.realScore / comp.totalMarks * 100).toFixed(2) : "";
-        return [`
-          <tr class="course-row course-row--sub">
-            <td class="cf-name cf-name--sub">
-              <span class="sub-indent">↳</span>${this.esc(comp.name)}
-              <span class="comp-weight-tag">${comp.weight}%</span>
-              ${comp.locked ? `<span class="locked-tag">locked</span>` : ""}
-            </td>
-            <td class="cf-units">—</td>
-            <td class="cf-grade">
-              <div class="grade-input-wrap">
-                <input type="number" min="0" max="100" step="0.01" class="grade-input"
-                       value="${cpct}" placeholder="—"
-                       data-action="set-comp-pct"
-                       data-course="${course.id}" data-comp="${comp.id}" />
-                <span class="grade-pct-sign">%</span>
+          return `
+            <div class="card-comp-row">
+              <div class="card-comp-row__top">
+                <span class="card-comp-row__name">${this.esc(comp.name)}</span>
+                <span class="card-comp-row__w">${scoreDisplay}</span>
               </div>
-            </td>
-            <td class="cf-gwa">—</td>
-            <td class="cf-status"></td>
-            <td class="cf-actions"></td>
-          </tr>`];
-      }).join("");
+              ${subRows}
+            </div>`;
+        }).join("");
+      }
 
       return `
-        <tr class="course-row course-row--header course-row--${status}">
-          <td class="cf-name">${nameCell}</td>
-          <td class="cf-units">${course.units}</td>
-          <td class="cf-grade cf-grade--multi">
-            <span class="multi-label">${course.components.length} components</span>
-          </td>
-          <td class="cf-gwa"><span class="gwa-chip">${Calc.fmt(cProjGWA, 1)}</span></td>
-          <td class="cf-status">${statusCell}</td>
-          <td class="cf-actions">${actions}</td>
-        </tr>
-        ${compRows}`;
+        <div class="course-card course-card--${status}" data-action="open-score-editor" data-id="${course.id}">
+          <div class="course-card__header">
+            <div>
+              <span class="course-card__name">${this.esc(course.name)}</span>
+              ${course.fullName ? `<span class="course-card__units">${this.esc(course.fullName)}</span>` : ""}
+            </div>
+            <button class="course-card__edit" data-action="open-course-editor" data-id="${course.id}" title="Edit structure">✎</button>
+          </div>
+
+          <div class="course-card__divider"></div>
+
+          <div class="course-card__comps">
+            ${compRows}
+          </div>
+
+          <div class="course-card__divider"></div>
+
+          <div class="course-card__footer">
+            <div class="card-standing">
+              <span class="card-standing__label">Current Standing</span>
+              <span class="card-standing__val">${Calc.fmt(cProjGWA, 1)}</span>
+            </div>
+            <div class="card-standing" style="text-align:right">
+              <span class="card-standing__label">Goal Standing</span>
+              <span class="card-standing__val">${Calc.fmt(cGoalGWA, 1)}</span>
+            </div>
+          </div>
+        </div>`;
     }).join("");
 
     return `
@@ -270,24 +185,13 @@ const UI = {
         ${gwaBar}
         ${banner}
 
-        ${term.courses.length ? `
-        <div class="course-form-wrap">
-          <table class="course-form-table">
-            <thead>
-              <tr>
-                <th class="cf-name">Course</th>
-                <th class="cf-units">Units</th>
-                <th class="cf-grade">Grade %</th>
-                <th class="cf-gwa">GWA</th>
-                <th class="cf-status"></th>
-                <th class="cf-actions"></th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>` : ""}
-
-        <button class="add-course-row-btn" data-action="add-course">+ Add course</button>
+        <div class="courses-grid">
+          ${courseCards}
+          <button class="add-course-card" data-action="add-course">
+            <span class="add-course-card__icon">+</span>
+            Add course
+          </button>
+        </div>
       </div>`;
   },
 
