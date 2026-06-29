@@ -25,21 +25,21 @@
 
   /* Status — Green */
   --c-green:        #22c55e;
-  --c-green-bg:     rgba(34,197,94,0.10);
-  --c-green-border: rgba(34,197,94,0.35);
-  --c-green-text:   #4ade80;
+  --c-green-bg:     rgba(34,197,94,0.20);
+  --c-green-border: rgba(34,197,94,0.60);
+  --c-green-text:   #6ee7a0;
 
   /* Status — Yellow */
   --c-yellow:        #eab308;
-  --c-yellow-bg:     rgba(234,179,8,0.10);
-  --c-yellow-border: rgba(234,179,8,0.35);
-  --c-yellow-text:   #facc15;
+  --c-yellow-bg:     rgba(234,179,8,0.20);
+  --c-yellow-border: rgba(234,179,8,0.60);
+  --c-yellow-text:   #fde047;
 
   /* Status — Red */
   --c-red:        #f43f5e;
-  --c-red-bg:     rgba(244,63,94,0.10);
-  --c-red-border: rgba(244,63,94,0.35);
-  --c-red-text:   #fb7185;
+  --c-red-bg:     rgba(244,63,94,0.20);
+  --c-red-border: rgba(244,63,94,0.60);
+  --c-red-text:   #fda4af;
 
   /* Status — Grey */
   --c-grey:        #6b7280;
@@ -711,6 +711,17 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .course-card--red    .card-comp-row__w { color: var(--c-red-text); }
 .course-card--grey   .card-comp-row__w { color: var(--c-grey-text); }
 
+/* Score display on summary cards */
+.card-comp-score {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.card-comp-score--good { color: var(--c-green-text); }
+.card-comp-score--bad  { color: var(--c-red-text); }
+.card-comp-score--none { color: var(--ink-3); }
+
 .card-subcomp {
   display: flex;
   justify-content: space-between;
@@ -835,14 +846,54 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .score-name { color: var(--ink); font-weight: 500; }
 
-/* Placeholder */
-.score-ph {
-  text-align: center;
+/* Column header hint */
+.th-hint {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.55;
+  margin-left: 3px;
+}
+
+/* Placeholder / assumed % */
+.score-ph { text-align: center; }
+.score-ph--empty { color: var(--ink-3); opacity: 0.3; font-family: var(--mono); font-size: 12px; }
+
+.ph-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+.ph-input {
+  width: 46px;
+  padding: 3px 5px;
+  background: var(--surface);
+  border: 1px solid var(--line-hard);
+  border-radius: var(--radius-xs);
+  color: var(--ink-2);
   font-family: var(--mono);
   font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+.ph-input:focus {
+  outline: none;
+  border-color: var(--brand);
+  color: var(--ink);
+}
+.ph-unit {
+  font-family: var(--mono);
+  font-size: 11px;
   color: var(--ink-3);
 }
-.score-ph--empty { color: var(--ink-3); opacity: 0.3; }
+.ph-marks {
+  display: block;
+  font-size: 10px;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  text-align: center;
+  margin-top: 2px;
+}
 
 /* Real score inputs */
 .score-real { text-align: center; }

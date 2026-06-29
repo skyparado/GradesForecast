@@ -105,20 +105,33 @@ const UI = {
         compRows = `<span class="card-empty">no components yet</span>`;
       } else {
         compRows = course.components.map(comp => {
-          let scoreDisplay;
-          if (!comp.subcomponents.length && comp.realScore !== null && comp.totalMarks > 0) {
-            scoreDisplay = `${(comp.realScore / comp.totalMarks * 100).toFixed(0)}%`;
-          } else {
-            scoreDisplay = `${comp.weight}%`;
+          const goalPct = Calc.cv(comp.confidence);
+
+          // Leaf component: show real % (colored) or "—"
+          let scoreHtml = "";
+          if (!comp.subcomponents.length) {
+            if (comp.realScore !== null && comp.totalMarks > 0) {
+              const pct   = (comp.realScore / comp.totalMarks) * 100;
+              const cls   = pct >= goalPct ? "card-comp-score--good" : "card-comp-score--bad";
+              scoreHtml   = `<span class="card-comp-score ${cls}">${pct.toFixed(0)}%</span>`;
+            } else {
+              scoreHtml   = `<span class="card-comp-score card-comp-score--none">—</span>`;
+            }
           }
 
           const subRows = comp.subcomponents.map(sub => {
-            const subScore = sub.realScore !== null && sub.totalMarks > 0
-              ? `${(sub.realScore / sub.totalMarks * 100).toFixed(0)}%` : "";
+            let subScoreHtml;
+            if (sub.realScore !== null && sub.totalMarks > 0) {
+              const subPct = (sub.realScore / sub.totalMarks) * 100;
+              const cls    = subPct >= goalPct ? "card-comp-score--good" : "card-comp-score--bad";
+              subScoreHtml = `<span class="card-comp-score ${cls}">${subPct.toFixed(0)}%</span>`;
+            } else {
+              subScoreHtml = `<span class="card-comp-score card-comp-score--none">—</span>`;
+            }
             return `
               <div class="card-subcomp">
                 <span class="card-subcomp__name">• ${this.esc(sub.name)}</span>
-                <span class="card-subcomp__w">${subScore}</span>
+                ${subScoreHtml}
               </div>`;
           }).join("");
 
@@ -126,7 +139,7 @@ const UI = {
             <div class="card-comp-row">
               <div class="card-comp-row__top">
                 <span class="card-comp-row__name">${this.esc(comp.name)}</span>
-                <span class="card-comp-row__w">${scoreDisplay}</span>
+                ${scoreHtml}
               </div>
               ${subRows}
             </div>`;
@@ -237,7 +250,7 @@ const UI = {
             <thead>
               <tr>
                 <th></th>
-                <th>placeholder score</th>
+                <th>assumed % <span class="th-hint">(editable)</span></th>
                 <th>real score</th>
                 <th>percentage</th>
                 <th>goal %</th>
@@ -286,12 +299,21 @@ const UI = {
         </td>`;
       pctCell  = `<td class="score-pct ${cls}">${pct.toFixed(0)}% ${icon}</td>`;
     } else {
+      const customPct = PlaceholderStore.get(entity.id) ?? goalPct;
       const phNum = entity.totalMarks
-        ? Math.round(goalPct / 100 * entity.totalMarks) : null;
-      const phDisplay = phNum !== null
-        ? `${phNum}/${entity.totalMarks}` : `${goalPct}%`;
+        ? Math.round(customPct / 100 * entity.totalMarks) : null;
 
-      phCell   = `<td class="score-ph">${phDisplay}</td>`;
+      phCell = `
+        <td class="score-ph">
+          <div class="ph-row">
+            <input type="number" min="0" max="100" step="1" class="ph-input"
+                   value="${customPct}"
+                   data-action="set-placeholder"
+                   data-comp="${compId}" data-sub="${subId}" />
+            <span class="ph-unit">%</span>
+          </div>
+          ${phNum !== null ? `<span class="ph-marks">${phNum}/${entity.totalMarks}</span>` : ""}
+        </td>`;
       realCell = `
         <td class="score-real">
           <div class="score-inputs">
@@ -395,6 +417,12 @@ const UI = {
                     data-action="set-threshold" data-id="${course.id}" data-val="60">60%</button>
             <button class="threshold-btn ${course.passingThreshold === 70 ? "active" : ""}"
                     data-action="set-threshold" data-id="${course.id}" data-val="70">70%</button>
+          </div>
+          <div class="threshold-toggle">
+            <button class="threshold-btn ${!course.flatGrade ? "active" : ""}"
+                    data-action="set-flat-grade" data-id="${course.id}" data-val="0">Components</button>
+            <button class="threshold-btn ${course.flatGrade ? "active" : ""}"
+                    data-action="set-flat-grade" data-id="${course.id}" data-val="1">Flat grade</button>
           </div>
         </header>
 

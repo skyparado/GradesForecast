@@ -168,6 +168,10 @@ const App = {
   handleClick(e) {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
+    // Form controls fire change/input events — don't intercept clicks on them
+    // (intercepting would trigger set-placeholder on click and immediately re-render)
+    const tag = btn.tagName;
+    if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
     e.stopPropagation();
     const { action, id, val } = btn.dataset;
     const handler = this.actions[action];
@@ -524,6 +528,22 @@ const App = {
         sub.totalMarks = el.value === "" ? null : Number(el.value);
         Storage.syncSub(sub).catch(console.error);
       }
+    },
+
+    "set-placeholder"(el) {
+      const entityId = el.dataset.sub || el.dataset.comp;
+      const pct = el.value === "" ? null : Math.min(100, Math.max(0, Number(el.value)));
+      PlaceholderStore.set(entityId, pct);
+      this.render();
+    },
+
+    "set-flat-grade"(btn, id, val) {
+      const course = this.activeCourse();
+      if (!course) return;
+      course.flatGrade = val === "1";
+      if (!course.flatGrade) course.flatScore = null;
+      this.render();
+      Storage.syncCourse(course).catch(console.error);
     },
   },
 };

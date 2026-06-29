@@ -29,7 +29,15 @@
     dlTarget: 3.4,   // 1st DL target — change via toggle in the app
     courses: [
       locked('CSINTSY', 3, 100,   2),   // 100% → GWA 4.0
-      locked('NSSECU2', 3, 100,   2),   // 95% shown + 5% attendance = 100% → 4.0
+      // NSSECU2: midterm 47/50 = 94%; finals TBD
+      {
+        id: uid(), name: 'NSSECU2', units: 3, passingThreshold: 60, overallConfidence: 2,
+        flatGrade: false, flatScore: null,
+        components: [
+          { id: uid(), name: 'Midterm', weight: 50, confidence: 2, subcomponents: [], totalMarks: 50, realScore: 47, locked: true },
+          { id: uid(), name: 'Finals',  weight: 50, confidence: 2, subcomponents: [], totalMarks: null, realScore: null, locked: false },
+        ],
+      },
       planned('CCDEVAP', 3, [            // grades not yet posted
         ['Attendance + Recitation + Hands-on',  10],
         ['Mini Challenges',                     30],
@@ -37,7 +45,16 @@
         ['Machine Project - Phase 2',           20],
         ['Machine Project - Phase 3',           20],
       ]),
-      locked('CSARCH2', 3, 76.64, 0),   // 76.64% → GWA 2.0
+      // CSARCH2: Exam 1 = 70/100 = 70%; remaining exams TBD
+      {
+        id: uid(), name: 'CSARCH2', units: 3, passingThreshold: 60, overallConfidence: 0,
+        flatGrade: false, flatScore: null,
+        components: [
+          { id: uid(), name: 'Exam 1', weight: 34, confidence: 0, subcomponents: [], totalMarks: 100, realScore: 70, locked: true },
+          { id: uid(), name: 'Exam 2', weight: 33, confidence: 0, subcomponents: [], totalMarks: null, realScore: null, locked: false },
+          { id: uid(), name: 'Exam 3', weight: 33, confidence: 0, subcomponents: [], totalMarks: null, realScore: null, locked: false },
+        ],
+      },
       locked('NSCOM02', 3, 97.5,  2),   // 97.5% → GWA 4.0
       locked('PE',      2, 94,    2),   // GWA 4.0 → 94%+ in Table A
     ],

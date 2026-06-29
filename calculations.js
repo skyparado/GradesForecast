@@ -2,6 +2,23 @@
  * calculations.js — DL Planner pure math
  * ========================================================================== */
 
+// Per-component placeholder % stored in localStorage so it persists across
+// page loads without needing a DB column. Keyed by component/subcomponent id.
+const PlaceholderStore = {
+  _key: "dlplanner.placeholders",
+  _data() {
+    try { return JSON.parse(localStorage.getItem(this._key) || "{}"); }
+    catch { return {}; }
+  },
+  get(id)       { return this._data()[id] ?? null; },
+  set(id, pct)  {
+    const d = this._data();
+    if (pct === null || pct === undefined) { delete d[id]; }
+    else { d[id] = Number(pct); }
+    localStorage.setItem(this._key, JSON.stringify(d));
+  },
+};
+
 // GWA Table A — 60% passing
 const GWA_A = [
   [94, 4.0], [89, 3.5], [83, 3.0], [78, 2.5],
@@ -24,18 +41,23 @@ const Calc = {
     return 0.0;
   },
 
+  // Custom placeholder % for an entity, falling back to confidence-based default.
+  placeholder(entity, confidence) {
+    return PlaceholderStore.get(entity.id) ?? this.cv(confidence);
+  },
+
   compPct(comp) {
     const subs = comp.subcomponents;
     if (!subs.length) {
-      if (comp.realScore !== null && comp.totalMarks > 0) {
+      if (comp.realScore !== null && comp.totalMarks > 0)
         return (comp.realScore / comp.totalMarks) * 100;
-      }
-      return this.cv(comp.confidence);
+      return this.placeholder(comp, comp.confidence);
     }
+    const parentPh = this.placeholder(comp, comp.confidence);
     const vals = subs.map(s =>
       s.realScore !== null && s.totalMarks > 0
         ? (s.realScore / s.totalMarks) * 100
-        : this.cv(comp.confidence)
+        : (PlaceholderStore.get(s.id) ?? parentPh)
     );
     return vals.reduce((a, b) => a + b, 0) / vals.length;
   },
@@ -53,7 +75,33 @@ const Calc = {
     );
   },
 
-  courseGoalPct(course) { return this.cv(course.overallConfidence); },
+  courseGoalPct(course) {
+    if (course.flatGrade) {
+      return course.flatScore !== null
+        ? course.flatScore
+        : this.cv(course.overallConfidence);
+    }
+    const tw = course.components.reduce((s, c) => s + (c.weight || 0), 0);
+    if (!tw) return this.cv(course.overallConfidence);
+    return course.components.reduce((s, comp) => {
+      const subs = comp.subcomponents;
+      let pct;
+      if (!subs.length) {
+        pct = (comp.realScore !== null && comp.totalMarks > 0)
+          ? (comp.realScore / comp.totalMarks) * 100
+          : this.cv(comp.confidence);
+      } else {
+        const target = this.cv(comp.confidence);
+        const vals = subs.map(sub =>
+          (sub.realScore !== null && sub.totalMarks > 0)
+            ? (sub.realScore / sub.totalMarks) * 100
+            : target
+        );
+        pct = vals.reduce((a, b) => a + b, 0) / vals.length;
+      }
+      return s + (comp.weight / 100) * pct;
+    }, 0);
+  },
 
   courseProjGWA(course) {
     return this.gwa(this.courseProjPct(course), course.passingThreshold);

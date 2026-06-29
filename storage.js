@@ -17,7 +17,49 @@ const Storage = {
       return this.load();
     }
 
-    return this._build(terms, courses, comps, subs);
+    const state = this._build(terms, courses, comps, subs);
+    await this._migrate(state);
+    return state;
+  },
+
+  // One-time migrations run on every load but no-op once applied.
+  async _migrate(state) {
+    for (const term of state.terms) {
+      const pe = term.courses.find(c => c.name === "PE" && c.flatGrade);
+      if (pe) await this._fixupPE(pe);
+    }
+  },
+
+  async _fixupPE(pe) {
+    const uid = () => crypto.randomUUID();
+
+    await DB.patch("courses", pe.id, {
+      flat_grade:         false,
+      flat_score:         null,
+      overall_confidence: 2,
+    });
+
+    const attId   = uid();
+    const skillId = uid();
+
+    await DB.post("components", {
+      id: attId, course_id: pe.id,
+      name: "Attendance", weight: 20, confidence: 2,
+      locked: true, real_score: 100, total_marks: 100,
+    });
+    await DB.post("components", {
+      id: skillId, course_id: pe.id,
+      name: "Skill Tests", weight: 80, confidence: 2,
+      locked: true, real_score: 100, total_marks: 100,
+    });
+
+    pe.flatGrade         = false;
+    pe.flatScore         = null;
+    pe.overallConfidence = 2;
+    pe.components        = [
+      { id: attId,   name: "Attendance",  weight: 20, confidence: 2, locked: true,  realScore: 100, totalMarks: 100, subcomponents: [] },
+      { id: skillId, name: "Skill Tests", weight: 80, confidence: 2, locked: true,  realScore: 100, totalMarks: 100, subcomponents: [] },
+    ];
   },
 
   _build(terms, courses, comps, subs) {
@@ -144,9 +186,12 @@ const Storage = {
       },
       {
         name: "PE", full_name: "Physical Education",
-        units: 2, passing_threshold: 60, overall_confidence: 1,
-        flat_grade: true, flat_score: null,
-        comps: [],
+        units: 2, passing_threshold: 60, overall_confidence: 2,
+        flat_grade: false, flat_score: null,
+        comps: [
+          { name: "Attendance",  weight: 20, confidence: 2, locked: true, real_score: 100, total_marks: 100 },
+          { name: "Skill Tests", weight: 80, confidence: 2, locked: true, real_score: 100, total_marks: 100 },
+        ],
       },
     ];
 
